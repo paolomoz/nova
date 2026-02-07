@@ -22,6 +22,19 @@ Nova is a monorepo (pnpm + turbo) with three layers:
 - D1 for relational data, KV for sessions/cache, Vectorize for embeddings, R2 for assets
 - GitHub OAuth for auth (Phase 0), Adobe IMS later (Phase 11)
 
+## Design System
+
+All UI work must follow the design instructions in **`DESIGN.md`**, derived from
+the AEM NextGen AI Assistant Pattern Library (Spectrum 2). Key points:
+
+- Visual language based on Adobe Spectrum 2 (lighter, rounder, bolder)
+- Color tokens: primary accent `#3B63FB`, body text `#292929`, background `#F8F8F8`
+- Typography: Adobe Clean font family, 1.125 type scale, ExtraBold headings
+- Spacing: 4px base grid (Spectrum spacing tokens)
+- AI layout modes: Prompt Bar, Rail, Contextual, Split, Full Screen
+- AI renderers: Plan, Modular Content (blocks), Page Preview, Charts, Asset Cards
+- Component file organization: `ui/` (primitives), `ai/` (assistant), `renderers/` (AI output), `editor/`, `sites/`
+
 ## Code Style
 
 - TypeScript strict mode everywhere
