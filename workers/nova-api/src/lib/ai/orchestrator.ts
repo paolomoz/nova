@@ -59,8 +59,9 @@ ${context.recentActions}`;
     systemPrompt += `\n\nValue insights:\n${context.valueInsights}`;
   }
 
-  systemPrompt += `\n\nYou have tools to list, read, create, delete, search, and analyze pages. Use them to fulfill the user's request.
+  systemPrompt += `\n\nYou have tools to list, read, create, delete, search, and analyze pages, and generate or update blocks. Use them to fulfill the user's request.
 When creating pages, use clean HTML with EDS block markup. Use get_block_library to check available blocks.
+Use generate_block to create new EDS blocks with HTML, CSS, and JS. Use update_block to iterate on existing blocks.
 Always confirm what you did after completing an action.`;
 
   const tools = getToolDefinitions();
@@ -73,6 +74,7 @@ Always confirm what you did after completing an action.`;
     voyageApiKey: env.VOYAGE_API_KEY,
     voyageModel: env.VOYAGE_MODEL,
     embedQueue: env.EMBED_QUEUE,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
   };
 
   const messages: Array<Record<string, unknown>> = [
@@ -198,6 +200,7 @@ export async function orchestrateWithPlan(
     voyageApiKey: env.VOYAGE_API_KEY,
     voyageModel: env.VOYAGE_MODEL,
     embedQueue: env.EMBED_QUEUE,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
   };
 
   const stepResults = await executePlan(plan, toolCtx, env, onProgress);

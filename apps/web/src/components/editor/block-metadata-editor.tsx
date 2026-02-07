@@ -37,7 +37,7 @@ export function BlockMetadataEditor({ projectId, blockName, onClose }: BlockMeta
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateBlockMetadata(projectId, {
+      await api.createBlock(projectId, {
         name: blockName,
         generativeConfig: {
           when_to_use: metadata.whenToUse,

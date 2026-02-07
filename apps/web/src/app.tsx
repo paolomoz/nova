@@ -9,6 +9,7 @@ import { SitesPage } from '@/routes/sites/index';
 import { EditorPage } from '@/routes/editor/index';
 import { AssetsPage } from '@/routes/assets/index';
 import { GenerativePage } from '@/routes/generative/index';
+import { BlocksPage } from '@/routes/blocks/index';
 import { SettingsPage } from '@/routes/settings/index';
 
 const queryClient = new QueryClient({
@@ -45,6 +46,7 @@ function AuthenticatedRoutes() {
       <Routes>
         <Route path="/sites/*" element={<SitesPage />} />
         <Route path="/editor/*" element={<EditorPage />} />
+        <Route path="/blocks/*" element={<BlocksPage />} />
         <Route path="/assets/*" element={<AssetsPage />} />
         <Route path="/generative/*" element={<GenerativePage />} />
         <Route path="/settings/*" element={<SettingsPage />} />

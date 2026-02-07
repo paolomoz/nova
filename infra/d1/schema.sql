@@ -130,6 +130,13 @@ CREATE TABLE block_library (
   project_id TEXT NOT NULL REFERENCES projects(id),
   name TEXT NOT NULL,
   category TEXT,
+  description TEXT,
+  structure_html TEXT,
+  css TEXT,
+  js TEXT,
+  status TEXT DEFAULT 'draft',         -- draft, committed, published
+  github_branch TEXT,
+  github_pr_url TEXT,
   generative_config TEXT DEFAULT '{}',
   value_metadata TEXT DEFAULT '{}',
   code_path TEXT,

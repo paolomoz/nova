@@ -1,12 +1,13 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Globe, FileText, Image, Sparkles, Settings, LogOut } from 'lucide-react';
+import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { path: '/sites', label: 'Sites', icon: Globe },
   { path: '/editor', label: 'Editor', icon: FileText },
+  { path: '/blocks', label: 'Blocks', icon: Blocks },
   { path: '/assets', label: 'Assets', icon: Image },
   { path: '/generative', label: 'Generative', icon: Sparkles },
   { path: '/settings', label: 'Settings', icon: Settings },

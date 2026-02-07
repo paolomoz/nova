@@ -9,6 +9,7 @@ export interface ToolContext {
   voyageApiKey: string;
   voyageModel: string;
   embedQueue?: Queue;
+  anthropicApiKey?: string;
 }
 
 export interface ToolDefinition {
@@ -214,6 +215,29 @@ EDS block structure rules:
           limit: { type: 'string', description: 'Number of results (default 5)' },
         },
         required: ['query'],
+      },
+    },
+    {
+      name: 'generate_block',
+      description: 'Generate a new EDS block using AI. Produces HTML structure, CSS, and JS for the block based on a description. The block is saved as a draft in the block library.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          intent: { type: 'string', description: 'Description of the block to generate (e.g. "a pricing table with 3 tiers and a toggle for monthly/annual")' },
+        },
+        required: ['intent'],
+      },
+    },
+    {
+      name: 'update_block',
+      description: 'Update an existing block in the library with AI-generated changes. Provide feedback to iterate on the block design.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          block_name: { type: 'string', description: 'Name of the block to update' },
+          feedback: { type: 'string', description: 'Description of changes to make (e.g. "make the cards larger and add a hover effect")' },
+        },
+        required: ['block_name', 'feedback'],
       },
     },
   ];
@@ -426,6 +450,71 @@ export async function executeTool(
         score: m.score,
       }));
       return JSON.stringify(results, null, 2);
+    }
+    case 'generate_block': {
+      const { generateBlock } = await import('./block-generator.js');
+      const { getBlockLibrary } = await import('../blocks.js');
+
+      const library = await getBlockLibrary(db, projectId);
+      const brand = await db.prepare(
+        'SELECT voice, visual, content_rules, design_tokens FROM brand_profiles WHERE project_id = ? LIMIT 1',
+      ).bind(projectId).first();
+      const brandProfile = brand ? {
+        voice: JSON.parse((brand.voice as string) || '{}'),
+        visual: JSON.parse((brand.visual as string) || '{}'),
+        contentRules: JSON.parse((brand.content_rules as string) || '{}'),
+        designTokens: JSON.parse((brand.design_tokens as string) || '{}'),
+      } : null;
+
+      const generated = await generateBlock(input.intent, library, brandProfile, {
+        ANTHROPIC_API_KEY: ctx.anthropicApiKey || '',
+      });
+
+      // Save draft
+      const blockId = crypto.randomUUID();
+      await db.prepare(
+        `INSERT INTO block_library (id, project_id, name, category, description, structure_html, css, js, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+         ON CONFLICT(project_id, name) DO UPDATE SET
+           category = excluded.category, description = excluded.description,
+           structure_html = excluded.structure_html, css = excluded.css, js = excluded.js,
+           status = 'draft', updated_at = datetime('now')`,
+      ).bind(blockId, projectId, generated.name, generated.category, generated.description,
+        generated.structureHtml, generated.css, generated.js).run();
+
+      await logAction(db, userId, projectId, 'generate_block', `AI generated block: ${generated.name}`, { intent: input.intent });
+      return `Generated block "${generated.name}" (${generated.category}): ${generated.description}. CSS: ${generated.css.length} chars, JS: ${generated.js.length} chars. Saved as draft.`;
+    }
+    case 'update_block': {
+      const { iterateBlock } = await import('./block-generator.js');
+      const existing = await db.prepare(
+        'SELECT * FROM block_library WHERE project_id = ? AND name = ?',
+      ).bind(projectId, input.block_name).first();
+
+      if (!existing) return `Block "${input.block_name}" not found in library.`;
+
+      const currentBlock = {
+        name: existing.name as string,
+        description: (existing.description as string) || '',
+        category: (existing.category as string) || 'Content',
+        structureHtml: (existing.structure_html as string) || '',
+        css: (existing.css as string) || '',
+        js: (existing.js as string) || '',
+        variants: [] as string[],
+        previewHtml: '',
+      };
+
+      const updated = await iterateBlock(currentBlock, input.feedback, [], {
+        ANTHROPIC_API_KEY: ctx.anthropicApiKey || '',
+      });
+
+      await db.prepare(
+        `UPDATE block_library SET description = ?, structure_html = ?, css = ?, js = ?, updated_at = datetime('now')
+         WHERE project_id = ? AND name = ?`,
+      ).bind(updated.description, updated.structureHtml, updated.css, updated.js, projectId, input.block_name).run();
+
+      await logAction(db, userId, projectId, 'update_block', `AI updated block: ${input.block_name}`, { feedback: input.feedback });
+      return `Updated block "${input.block_name}": ${updated.description}`;
     }
     default:
       return `Unknown tool: ${name}`;

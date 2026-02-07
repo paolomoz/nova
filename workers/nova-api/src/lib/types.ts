@@ -19,6 +19,7 @@ export interface Env {
   DA_CLIENT_ID: string;
   DA_CLIENT_SECRET: string;
   DA_SERVICE_TOKEN: string;
+  GITHUB_TOKEN: string;
   // Vars
   CORS_ORIGIN: string;
   DA_ADMIN_HOST?: string;

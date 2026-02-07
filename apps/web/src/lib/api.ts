@@ -91,6 +91,33 @@ export interface BlockDefinition {
   isCustom?: boolean;
 }
 
+export interface BlockDetail {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  structureHtml: string;
+  css: string;
+  js: string;
+  status: string;
+  codePath: string;
+  githubBranch: string;
+  githubPrUrl: string;
+  generativeConfig: Record<string, unknown>;
+  valueMetadata: Record<string, unknown>;
+}
+
+export interface GeneratedBlockResult {
+  name: string;
+  description: string;
+  category: string;
+  structureHtml: string;
+  css: string;
+  js: string;
+  variants: string[];
+  previewHtml: string;
+}
+
 export interface AssetItem {
   name: string;
   path: string;
@@ -187,9 +214,29 @@ export const api = {
   getBlockLibrary: (projectId: string) =>
     request<{ blocks: BlockDefinition[] }>(`/content/${projectId}/block-library`),
 
-  // Blocks (DB CRUD)
-  updateBlockMetadata: (projectId: string, data: { name: string; category?: string; generativeConfig?: object; valueMetadata?: object }) =>
-    request(`/blocks/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
+  // Blocks
+  getBlocks: (projectId: string) =>
+    request<{ blocks: BlockDefinition[] }>(`/blocks/${projectId}`),
+  getBlock: (projectId: string, blockId: string) =>
+    request<{ block: BlockDetail }>(`/blocks/${projectId}/${blockId}`),
+  createBlock: (projectId: string, data: { name: string; category?: string; description?: string; generativeConfig?: object; valueMetadata?: object }) =>
+    request<{ ok: boolean; id: string }>(`/blocks/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
+  updateBlock: (projectId: string, blockId: string, data: { name?: string; category?: string; description?: string; structureHtml?: string; css?: string; js?: string; generativeConfig?: object; valueMetadata?: object }) =>
+    request(`/blocks/${projectId}/${blockId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBlock: (projectId: string, blockId: string) =>
+    request(`/blocks/${projectId}/${blockId}`, { method: 'DELETE' }),
+  generateBlock: (projectId: string, intent: string) =>
+    request<{ ok: boolean; id: string; block: GeneratedBlockResult }>(`/blocks/${projectId}/generate`, {
+      method: 'POST', body: JSON.stringify({ intent }),
+    }),
+  iterateBlock: (projectId: string, blockId: string, feedback: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>) =>
+    request<{ ok: boolean; block: GeneratedBlockResult }>(`/blocks/${projectId}/${blockId}/iterate`, {
+      method: 'POST', body: JSON.stringify({ feedback, history }),
+    }),
+  commitBlock: (projectId: string, blockId: string) =>
+    request<{ ok: boolean; commit: { sha: string; branch: string }; pr: { number: number; url: string } }>(`/blocks/${projectId}/${blockId}/commit`, { method: 'POST' }),
+  getBlockPreviewUrl: (projectId: string, blockId: string) =>
+    `/api/blocks/${projectId}/${blockId}/preview`,
 
   // Search
   search: (projectId: string, query: string) =>
