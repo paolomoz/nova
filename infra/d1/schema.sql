@@ -197,6 +197,89 @@ CREATE TABLE content_index (
 
 CREATE INDEX idx_content_index_project ON content_index(project_id);
 
+-- Workflows
+CREATE TABLE workflows (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'review',  -- review, publish, launch, translation
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending, in_progress, approved, rejected, completed
+  config TEXT DEFAULT '{}',
+  created_by TEXT NOT NULL,
+  assigned_to TEXT,
+  path TEXT,
+  description TEXT,
+  due_date TEXT,
+  completed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE workflow_steps (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  step_order INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'approval',  -- approval, review, automated
+  status TEXT NOT NULL DEFAULT 'pending',
+  assigned_to TEXT,
+  completed_by TEXT,
+  comment TEXT,
+  completed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Launches (branch-based content promotion)
+CREATE TABLE launches (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',  -- draft, staged, scheduled, live, archived
+  source_branch TEXT,
+  scheduled_at TEXT,
+  published_at TEXT,
+  paths TEXT DEFAULT '[]',  -- JSON array of paths included
+  created_by TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Notifications / Inbox
+CREATE TABLE notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  project_id TEXT REFERENCES projects(id),
+  type TEXT NOT NULL,  -- workflow_assigned, launch_ready, comment, mention, system
+  title TEXT NOT NULL,
+  body TEXT,
+  link TEXT,
+  read INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Translations
+CREATE TABLE translations (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  source_path TEXT NOT NULL,
+  source_locale TEXT NOT NULL DEFAULT 'en',
+  target_locale TEXT NOT NULL,
+  target_path TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending, in_progress, review, completed
+  provider TEXT,  -- deepl, google, manual
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, source_path, target_locale)
+);
+
+CREATE INDEX idx_workflows_project ON workflows(project_id);
+CREATE INDEX idx_workflows_status ON workflows(project_id, status);
+CREATE INDEX idx_launches_project ON launches(project_id);
+CREATE INDEX idx_notifications_user ON notifications(user_id, read);
+CREATE INDEX idx_translations_project ON translations(project_id);
+
 -- Indexes
 CREATE INDEX idx_value_scores_project ON value_scores(project_id);
 CREATE INDEX idx_value_scores_path ON value_scores(project_id, path);

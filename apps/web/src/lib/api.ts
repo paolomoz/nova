@@ -332,6 +332,48 @@ export const api = {
   getGenerativeStats: (projectId: string, days = 30) =>
     request<GenerativeStats>(`/generative/${projectId}/monitoring/stats?days=${days}`),
 
+  // Enterprise — Workflows
+  getWorkflows: (projectId: string, status?: string) =>
+    request<{ workflows: Workflow[] }>(`/enterprise/${projectId}/workflows${status ? `?status=${status}` : ''}`),
+  createWorkflow: (projectId: string, data: { name: string; type?: string; path?: string; description?: string; assignedTo?: string; dueDate?: string; steps?: Array<{ name: string; type?: string; assignedTo?: string }> }) =>
+    request<{ ok: boolean; id: string }>(`/enterprise/${projectId}/workflows`, { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkflow: (projectId: string, workflowId: string, data: { status?: string; assignedTo?: string; comment?: string }) =>
+    request(`/enterprise/${projectId}/workflows/${workflowId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getWorkflowSteps: (projectId: string, workflowId: string) =>
+    request<{ steps: WorkflowStep[] }>(`/enterprise/${projectId}/workflows/${workflowId}/steps`),
+  completeWorkflowStep: (projectId: string, workflowId: string, stepId: string, data: { status: string; comment?: string }) =>
+    request(`/enterprise/${projectId}/workflows/${workflowId}/steps/${stepId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Enterprise — Launches
+  getLaunches: (projectId: string) =>
+    request<{ launches: Launch[] }>(`/enterprise/${projectId}/launches`),
+  createLaunch: (projectId: string, data: { name: string; description?: string; paths?: string[]; scheduledAt?: string }) =>
+    request<{ ok: boolean; id: string; sourceBranch: string }>(`/enterprise/${projectId}/launches`, { method: 'POST', body: JSON.stringify(data) }),
+  updateLaunch: (projectId: string, launchId: string, data: { status?: string; scheduledAt?: string; paths?: string[] }) =>
+    request(`/enterprise/${projectId}/launches/${launchId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteLaunch: (projectId: string, launchId: string) =>
+    request(`/enterprise/${projectId}/launches/${launchId}`, { method: 'DELETE' }),
+
+  // Enterprise — Notifications
+  getNotifications: (unreadOnly?: boolean) =>
+    request<{ notifications: Notification[] }>(`/enterprise/notifications/inbox${unreadOnly ? '?unread=true' : ''}`),
+  markNotificationRead: (notificationId: string) =>
+    request(`/enterprise/notifications/${notificationId}/read`, { method: 'PUT' }),
+  markAllNotificationsRead: () =>
+    request('/enterprise/notifications/mark-all-read', { method: 'POST' }),
+
+  // Enterprise — Translations
+  getTranslations: (projectId: string) =>
+    request<{ translations: Translation[] }>(`/enterprise/${projectId}/translations`),
+  createTranslation: (projectId: string, data: { sourcePath: string; sourceLocale?: string; targetLocale: string; provider?: string }) =>
+    request<{ ok: boolean; id: string; targetPath: string; translated?: string; status: string }>(`/enterprise/${projectId}/translations`, { method: 'POST', body: JSON.stringify(data) }),
+  updateTranslation: (projectId: string, translationId: string, status: string) =>
+    request(`/enterprise/${projectId}/translations/${translationId}`, { method: 'PUT', body: JSON.stringify({ status }) }),
+
+  // Enterprise — Bulk
+  bulkOperation: (projectId: string, operation: string, paths: string[]) =>
+    request<{ ok: boolean; results: Array<{ path: string; ok: boolean; error?: string }> }>(`/enterprise/${projectId}/bulk`, { method: 'POST', body: JSON.stringify({ operation, paths }) }),
+
   // Brand
   getBrandProfiles: (projectId: string) =>
     request<{ profiles: BrandProfile[] }>(`/brand/${projectId}`),
@@ -412,6 +454,66 @@ export const api = {
     return controller;
   },
 };
+
+export interface Workflow {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  path: string | null;
+  description: string | null;
+  assignedTo: string | null;
+  createdBy: string;
+  dueDate: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  order: number;
+  name: string;
+  type: string;
+  status: string;
+  assignedTo: string | null;
+  completedBy: string | null;
+  comment: string | null;
+  completedAt: string | null;
+}
+
+export interface Launch {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  sourceBranch: string;
+  scheduledAt: string | null;
+  publishedAt: string | null;
+  paths: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Translation {
+  id: string;
+  sourcePath: string;
+  sourceLocale: string;
+  targetLocale: string;
+  targetPath: string | null;
+  status: string;
+  provider: string | null;
+  createdAt: string;
+}
 
 export interface BrandProfile {
   id: string;

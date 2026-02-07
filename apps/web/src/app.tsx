@@ -11,6 +11,7 @@ import { AssetsPage } from '@/routes/assets/index';
 import { GenerativePage } from '@/routes/generative/index';
 import { BlocksPage } from '@/routes/blocks/index';
 import { BrandPage } from '@/routes/brand/index';
+import { EnterprisePage } from '@/routes/enterprise/index';
 import { SettingsPage } from '@/routes/settings/index';
 
 const queryClient = new QueryClient({
@@ -51,6 +52,7 @@ function AuthenticatedRoutes() {
         <Route path="/assets/*" element={<AssetsPage />} />
         <Route path="/generative/*" element={<GenerativePage />} />
         <Route path="/brand/*" element={<BrandPage />} />
+        <Route path="/enterprise/*" element={<EnterprisePage />} />
         <Route path="/settings/*" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/sites" />} />
       </Routes>
