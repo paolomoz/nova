@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson } from 'lucide-react';
+import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 const navItems = [
   { path: '/sites', label: 'Sites', icon: Globe },
@@ -19,7 +20,8 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, org, orgs, logout, switchOrg } = useAuth();
+  const [orgMenuOpen, setOrgMenuOpen] = useState(false);
 
   return (
     <div className="flex h-screen">
@@ -49,6 +51,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="mt-auto flex flex-col items-center gap-2">
+          {/* Org switcher */}
+          {orgs.length > 1 && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title={org?.name || 'Switch org'}
+                onClick={() => setOrgMenuOpen(!orgMenuOpen)}
+              >
+                <ChevronsUpDown className="h-4 w-4" />
+              </Button>
+              {orgMenuOpen && (
+                <div className="absolute bottom-10 left-0 z-50 w-48 rounded-md border bg-popover p-1 shadow-md">
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Organizations</div>
+                  {orgs.map((o) => (
+                    <button
+                      key={o.id}
+                      className={cn(
+                        'flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent',
+                        o.id === org?.id && 'bg-accent font-medium',
+                      )}
+                      onClick={() => {
+                        switchOrg(o.id);
+                        setOrgMenuOpen(false);
+                      }}
+                    >
+                      {o.name || o.slug}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {user?.avatarUrl && (
             <img src={user.avatarUrl} alt={user.name} className="h-8 w-8 rounded-full" />
           )}

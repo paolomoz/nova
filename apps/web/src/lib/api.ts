@@ -177,6 +177,14 @@ export const api = {
     }>('/auth/me'),
   loginWithGitHub: (code: string) =>
     request('/auth/github/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+  loginWithIMS: (code: string) =>
+    request('/auth/ims/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+  switchOrg: (orgId: string) =>
+    request('/auth/switch-org', { method: 'POST', body: JSON.stringify({ orgId }) }),
+  getOrgs: () =>
+    request<{ orgs: Array<{ id: string; name: string; slug: string; role: string }> }>('/auth/orgs'),
+  updatePreferences: (preferences: Record<string, unknown>) =>
+    request('/auth/preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // Org

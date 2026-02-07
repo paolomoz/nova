@@ -22,6 +22,9 @@ export interface Env {
   GITHUB_TOKEN: string;
   ASSETS: R2Bucket;
   // Vars
+  IMS_CLIENT_ID: string;
+  IMS_CLIENT_SECRET: string;
+  IMS_REDIRECT_URI: string;
   CORS_ORIGIN: string;
   DA_ADMIN_HOST?: string;
   VOYAGE_MODEL: string;
