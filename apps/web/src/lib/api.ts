@@ -118,6 +118,35 @@ export interface GeneratedBlockResult {
   previewHtml: string;
 }
 
+export interface GenerativeConfigItem {
+  id: string;
+  pathPattern: string;
+  deliveryMode: string;
+  intentConfig: Record<string, unknown>;
+  confidenceThresholds: Record<string, unknown>;
+  signalConfig: Record<string, unknown>;
+  blockConstraints: Record<string, unknown>;
+}
+
+export interface GenerationRecord {
+  id: string;
+  description: string;
+  input: { query?: string; intent?: string };
+  output: { blocks?: number; persisted?: string | null };
+  createdAt: string;
+}
+
+export interface GenerativeStats {
+  totalGenerations: number;
+  daily: Array<{ date: string; count: number }>;
+  performance: {
+    avgLcp: number | null;
+    avgInp: number | null;
+    avgCls: number | null;
+    totalViews: number;
+  };
+}
+
 export interface AssetItem {
   name: string;
   path: string;
@@ -244,6 +273,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query }),
     }),
+
+  // Generative config
+  getGenerativeConfigs: (projectId: string) =>
+    request<{ configs: GenerativeConfigItem[] }>(`/generative/${projectId}/config`),
+  upsertGenerativeConfig: (projectId: string, data: { pathPattern: string; deliveryMode: string; intentConfig?: object; confidenceThresholds?: object; signalConfig?: object; blockConstraints?: object }) =>
+    request(`/generative/${projectId}/config`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteGenerativeConfig: (projectId: string, configId: string) =>
+    request(`/generative/${projectId}/config/${configId}`, { method: 'DELETE' }),
+
+  // Generative monitoring
+  getGenerativeRecent: (projectId: string, limit = 50) =>
+    request<{ generations: GenerationRecord[] }>(`/generative/${projectId}/monitoring/recent?limit=${limit}`),
+  getGenerativeStats: (projectId: string, days = 30) =>
+    request<GenerativeStats>(`/generative/${projectId}/monitoring/stats?days=${days}`),
 
   // AI Streaming
   streamAI: (projectId: string, prompt: string, onEvent: (event: SSEStreamEvent) => void): AbortController => {

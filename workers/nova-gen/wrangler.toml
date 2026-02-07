@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 MODEL_PRESET = "production"
 DEBUG = "false"
+VOYAGE_MODEL = "voyage-3"
 
 # [[kv_namespaces]]
 # binding = "SESSIONS"
