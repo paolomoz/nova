@@ -332,6 +332,28 @@ export const api = {
   getGenerativeStats: (projectId: string, days = 30) =>
     request<GenerativeStats>(`/generative/${projectId}/monitoring/stats?days=${days}`),
 
+  // Brand
+  getBrandProfiles: (projectId: string) =>
+    request<{ profiles: BrandProfile[] }>(`/brand/${projectId}`),
+  getBrandProfile: (projectId: string, name: string) =>
+    request<{ profile: BrandProfile }>(`/brand/${projectId}/${encodeURIComponent(name)}`),
+  saveBrandProfile: (projectId: string, name: string, data: { voice?: object; visual?: object; contentRules?: object; designTokens?: object }) =>
+    request(`/brand/${projectId}/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBrandProfile: (projectId: string, name: string) =>
+    request(`/brand/${projectId}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  validateVoice: (projectId: string, text: string, profileName?: string) =>
+    request<{ ok: boolean; validation: VoiceValidation }>(`/brand/${projectId}/validate-voice`, {
+      method: 'POST', body: JSON.stringify({ text, profileName }),
+    }),
+  checkVisual: (projectId: string, data: { css?: string; html?: string; profileName?: string }) =>
+    request<{ ok: boolean; check: VisualCheck }>(`/brand/${projectId}/check-visual`, {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  runBrandAudit: (projectId: string, profileName?: string) =>
+    request<{ ok: boolean; audit: BrandAudit }>(`/brand/${projectId}/audit`, {
+      method: 'POST', body: JSON.stringify({ profileName }),
+    }),
+
   // AI Streaming
   streamAI: (projectId: string, prompt: string, onEvent: (event: SSEStreamEvent) => void): AbortController => {
     const controller = new AbortController();
@@ -390,6 +412,51 @@ export const api = {
     return controller;
   },
 };
+
+export interface BrandProfile {
+  id: string;
+  name: string;
+  voice: BrandVoice;
+  visual: BrandVisual;
+  contentRules: Record<string, unknown>;
+  designTokens: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface BrandVoice {
+  tone?: string;
+  personality?: string;
+  dos?: string[];
+  donts?: string[];
+}
+
+export interface BrandVisual {
+  colors?: Record<string, string>;
+  typography?: Record<string, string>;
+  spacing?: Record<string, string>;
+}
+
+export interface VoiceValidation {
+  score: number;
+  issues: Array<{ severity: string; description: string; suggestion: string }>;
+  strengths: string[];
+  rewriteSuggestion: string | null;
+}
+
+export interface VisualCheck {
+  compliant: boolean;
+  score: number;
+  issues: Array<{ type: string; severity: string; description: string; fix: string }>;
+  suggestions: string[];
+}
+
+export interface BrandAudit {
+  overallScore: number;
+  summary: string;
+  pages: Array<{ path: string; score: number; issues: string[]; suggestions: string[] }>;
+  trends: string[];
+  recommendations: string[];
+}
 
 export interface SSEStreamEvent {
   event: string;
