@@ -1,0 +1,29 @@
+name = "nova-gen"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+MODEL_PRESET = "production"
+DEBUG = "false"
+
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = ""
+
+# [[kv_namespaces]]
+# binding = "DA_TOKEN_CACHE"
+# id = ""
+
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "nova-content"
+
+# [[ d1_databases ]]
+# binding = "DB"
+# database_name = "nova-db"
+# database_id = ""
+
+[dev]
+port = 8788
+local_protocol = "http"

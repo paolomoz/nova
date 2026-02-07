@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "@nova/shared-types": ["../../packages/shared-types/src"],
+      "@nova/da-client": ["../../packages/da-client/src"]
+    }
+  },
+  "include": ["src/**/*"]
+}
