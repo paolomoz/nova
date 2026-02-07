@@ -274,6 +274,26 @@ export const api = {
       body: JSON.stringify({ query }),
     }),
 
+  // Design
+  generateDesign: (projectId: string, intent: string) =>
+    request<{ ok: boolean; design: { tokens: Record<string, Record<string, string>>; css: string; styleGuideHtml: string; theme?: { light: Record<string, string>; dark: Record<string, string> } } }>(`/design/${projectId}/generate`, {
+      method: 'POST', body: JSON.stringify({ intent }),
+    }),
+  bootstrapSite: (projectId: string, description: string) =>
+    request<{ ok: boolean; design: Record<string, unknown>; pages: Array<{ path: string; title: string; html: string }> }>(`/design/${projectId}/bootstrap`, {
+      method: 'POST', body: JSON.stringify({ description }),
+    }),
+  getDesignTokens: (projectId: string) =>
+    request<{ tokens: Record<string, Record<string, string>> | null }>(`/design/${projectId}/tokens`),
+  updateDesignTokens: (projectId: string, tokens: Record<string, unknown>) =>
+    request(`/design/${projectId}/tokens`, { method: 'PUT', body: JSON.stringify({ tokens }) }),
+  commitDesign: (projectId: string) =>
+    request<{ ok: boolean; commit: { sha: string }; pr: { number: number; url: string } }>(`/design/${projectId}/commit`, { method: 'POST' }),
+  generateTheme: (projectId: string, variant: string) =>
+    request<{ ok: boolean; theme: Record<string, unknown> }>(`/design/${projectId}/theme`, {
+      method: 'POST', body: JSON.stringify({ variant }),
+    }),
+
   // Generative config
   getGenerativeConfigs: (projectId: string) =>
     request<{ configs: GenerativeConfigItem[] }>(`/generative/${projectId}/config`),
