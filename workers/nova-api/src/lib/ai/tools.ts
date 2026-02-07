@@ -36,12 +36,24 @@ export function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'create_page',
-      description: 'Create a new page with HTML content. Use standard EDS block markup with div-based blocks.',
+      description: `Create a new page with HTML content using EDS block markup.
+
+EDS block structure rules:
+- A block is: <div class="block-name"><div>...rows...</div></div>
+- Each row is a direct child <div> of the block. Each cell is a direct child <div> of a row.
+- Columns: ONE row with N cells (not N rows with 1 cell). Example: <div class="columns"><div><div>Col1</div><div>Col2</div></div></div>
+- Cards: N rows, each row is one card. Each card row has cells (e.g. image cell + text cell). Example: <div class="cards"><div><div><picture><img></picture></div><div><h3>Title</h3><p>Text</p></div></div></div>
+- Accordion: N rows, each row has a question cell + answer cell. Example: <div class="accordion"><div><div><h3>Q?</h3></div><div><p>Answer</p></div></div></div>
+- Tabs: N rows, each row has a label cell + content cell.
+- Hero: 1 row with image cell + text cell.
+- Images use <picture><img src="..." alt="..."></picture>.
+- Section breaks: <hr>. Section metadata: <div class="section-metadata"><div><div>key</div><div>value</div></div></div> placed BEFORE the <hr>.
+- Variants are space-separated classes: <div class="cards horizontal">.`,
       input_schema: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Page path (e.g. "/en/test")' },
-          content: { type: 'string', description: 'HTML content for the page' },
+          content: { type: 'string', description: 'HTML content for the page using EDS block markup' },
         },
         required: ['path', 'content'],
       },

@@ -80,6 +80,24 @@ export interface AISuggestion {
   prompt: string;
 }
 
+export interface BlockDefinition {
+  name: string;
+  category: string;
+  description: string;
+  structure: string;
+  variants: string[];
+  generativeConfig?: Record<string, unknown>;
+  valueMetadata?: Record<string, unknown>;
+  isCustom?: boolean;
+}
+
+export interface AssetItem {
+  name: string;
+  path: string;
+  ext: string;
+  lastModified?: string;
+}
+
 export const api = {
   // Auth
   getMe: () =>
@@ -136,6 +154,42 @@ export const api = {
     request<{
       actions: Array<{ id: string; action_type: string; description: string; created_at: string }>;
     }>(`/ai/${projectId}/history?limit=${limit}`),
+
+  // Preview & Publish
+  previewPage: (projectId: string, path: string) =>
+    request<{ ok: boolean; url: string }>(`/content/${projectId}/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+  publishPage: (projectId: string, path: string) =>
+    request<{ ok: boolean; url: string }>(`/content/${projectId}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+
+  // Assets
+  listAssets: (projectId: string, path: string = '/media') =>
+    request<{ assets: AssetItem[] }>(`/content/${projectId}/assets?path=${encodeURIComponent(path)}`),
+  uploadAsset: async (projectId: string, path: string, file: File): Promise<{ ok: boolean; url: string; path: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('path', path);
+    const response = await fetch(`${API_BASE}/content/${projectId}/assets`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    if (!response.ok) throw new ApiError(response.status, await response.text());
+    return response.json();
+  },
+
+  // Block Library
+  getBlockLibrary: (projectId: string) =>
+    request<{ blocks: BlockDefinition[] }>(`/content/${projectId}/block-library`),
+
+  // Blocks (DB CRUD)
+  updateBlockMetadata: (projectId: string, data: { name: string; category?: string; generativeConfig?: object; valueMetadata?: object }) =>
+    request(`/blocks/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Search
   search: (projectId: string, query: string) =>

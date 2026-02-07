@@ -277,9 +277,9 @@ content.get('/:projectId/templates', async (c) => {
 <div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>
 <hr>
 <div class="cards">
-  <div><div><h3>Card One</h3><p>Description for card one.</p></div></div>
-  <div><div><h3>Card Two</h3><p>Description for card two.</p></div></div>
-  <div><div><h3>Card Three</h3><p>Description for card three.</p></div></div>
+  <div><div><picture><img src="/media/placeholder.png" alt="Card one image"></picture></div><div><h3>Card One</h3><p>Description for card one.</p></div></div>
+  <div><div><picture><img src="/media/placeholder.png" alt="Card two image"></picture></div><div><h3>Card Two</h3><p>Description for card two.</p></div></div>
+  <div><div><picture><img src="/media/placeholder.png" alt="Card three image"></picture></div><div><h3>Card Three</h3><p>Description for card three.</p></div></div>
 </div>`,
     },
     {
@@ -292,9 +292,7 @@ content.get('/:projectId/templates', async (c) => {
 <div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>
 <hr>
 <div class="columns">
-  <div><div><h3>Feature One</h3><p>Explain this great feature.</p></div></div>
-  <div><div><h3>Feature Two</h3><p>Explain another great feature.</p></div></div>
-  <div><div><h3>Feature Three</h3><p>And one more for good measure.</p></div></div>
+  <div><div><h3>Feature One</h3><p>Explain this great feature.</p></div><div><h3>Feature Two</h3><p>Explain another great feature.</p></div><div><h3>Feature Three</h3><p>And one more for good measure.</p></div></div>
 </div>
 <hr>
 <h2>Ready to get started?</h2>
@@ -322,9 +320,9 @@ content.get('/:projectId/templates', async (c) => {
 <p>Find answers to common questions below.</p>
 <hr>
 <div class="accordion">
-  <div><div><h3>Question one?</h3><p>Answer to question one goes here.</p></div></div>
-  <div><div><h3>Question two?</h3><p>Answer to question two goes here.</p></div></div>
-  <div><div><h3>Question three?</h3><p>Answer to question three goes here.</p></div></div>
+  <div><div><h3>Question one?</h3></div><div><p>Answer to question one goes here.</p></div></div>
+  <div><div><h3>Question two?</h3></div><div><p>Answer to question two goes here.</p></div></div>
+  <div><div><h3>Question three?</h3></div><div><p>Answer to question three goes here.</p></div></div>
 </div>`,
     },
   ];
@@ -384,6 +382,204 @@ content.get('/:projectId/suggestions', async (c) => {
   });
 
   return c.json({ suggestions: unique.slice(0, 5) });
+});
+
+/** POST /api/content/:projectId/preview — trigger EDS preview */
+content.post('/:projectId/preview', async (c) => {
+  const projectId = c.req.param('projectId');
+  const { path } = await c.req.json<{ path: string }>();
+  if (!path) return c.json({ error: 'path required' }, 400);
+
+  // Look up project for EDS config
+  const project = await c.env.DB.prepare(
+    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
+  )
+    .bind(projectId)
+    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
+  if (!project) return c.json({ error: 'project not found' }, 404);
+
+  const org = project.github_org || project.da_org;
+  const site = project.github_repo || project.da_repo;
+
+  const response = await fetch(
+    `https://admin.hlx.page/preview/${org}/${site}/main${path}`,
+    { method: 'POST' },
+  );
+  if (!response.ok) {
+    return c.json({ error: `Preview failed: ${response.status}` }, 502);
+  }
+
+  const previewUrl = `https://main--${site}--${org}.aem.page${path}`;
+  const session = c.get('session');
+  await logAction(c.env.DB, session.userId, projectId, 'preview', `Previewed ${path}`, { path });
+
+  return c.json({ ok: true, url: previewUrl });
+});
+
+/** POST /api/content/:projectId/publish — publish to live */
+content.post('/:projectId/publish', async (c) => {
+  const projectId = c.req.param('projectId');
+  const { path } = await c.req.json<{ path: string }>();
+  if (!path) return c.json({ error: 'path required' }, 400);
+
+  const project = await c.env.DB.prepare(
+    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
+  )
+    .bind(projectId)
+    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
+  if (!project) return c.json({ error: 'project not found' }, 404);
+
+  const org = project.github_org || project.da_org;
+  const site = project.github_repo || project.da_repo;
+
+  const response = await fetch(
+    `https://admin.hlx.page/live/${org}/${site}/main${path}`,
+    { method: 'POST' },
+  );
+  if (!response.ok) {
+    return c.json({ error: `Publish failed: ${response.status}` }, 502);
+  }
+
+  const liveUrl = `https://main--${site}--${org}.aem.live${path}`;
+  const session = c.get('session');
+  await logAction(c.env.DB, session.userId, projectId, 'publish', `Published ${path}`, { path });
+
+  return c.json({ ok: true, url: liveUrl });
+});
+
+/** GET /api/content/:projectId/assets?path=/ — list media assets */
+content.get('/:projectId/assets', async (c) => {
+  const projectId = c.req.param('projectId');
+  const path = c.req.query('path') || '/media';
+  const client = await getDAClientForProject(c.env, projectId);
+  const items = await client.list(path);
+  // Filter to only media files
+  const mediaExts = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'mp4', 'pdf'];
+  const mediaItems = items.filter((item: { ext?: string }) =>
+    item.ext && mediaExts.includes(item.ext.toLowerCase()),
+  );
+  return c.json({ assets: mediaItems });
+});
+
+/** POST /api/content/:projectId/assets — upload media */
+content.post('/:projectId/assets', async (c) => {
+  const projectId = c.req.param('projectId');
+  const formData = await c.req.formData();
+  const file = formData.get('file') as File | null;
+  const uploadPath = formData.get('path') as string | null;
+  if (!file || !uploadPath) return c.json({ error: 'file and path required' }, 400);
+
+  const client = await getDAClientForProject(c.env, projectId);
+  const url = await client.uploadMedia(uploadPath, file, file.name);
+
+  const session = c.get('session');
+  await logAction(c.env.DB, session.userId, projectId, 'upload_asset', `Uploaded ${file.name} to ${uploadPath}`, { path: uploadPath, name: file.name });
+
+  return c.json({ ok: true, url, path: uploadPath });
+});
+
+/** GET /api/content/:projectId/block-library — EDS block catalog */
+content.get('/:projectId/block-library', async (c) => {
+  const projectId = c.req.param('projectId');
+
+  // Get project-specific blocks from DB
+  const { results: dbBlocks } = await c.env.DB.prepare(
+    'SELECT * FROM block_library WHERE project_id = ? ORDER BY category, name',
+  )
+    .bind(projectId)
+    .all();
+
+  // Default EDS block catalog (from Block Collection)
+  const defaultBlocks = [
+    {
+      name: 'hero',
+      category: 'Structure',
+      description: 'Large heading, text, and CTA buttons at the top of a page',
+      structure: '<div class="hero"><div><div><picture><img src="" alt=""></picture></div><div><h1>Heading</h1><p>Description</p><p><a href="#">CTA</a></p></div></div></div>',
+      variants: ['dark', 'centered', 'full-width'],
+    },
+    {
+      name: 'cards',
+      category: 'Content',
+      description: 'Grid of items with images, headings, and descriptions',
+      structure: '<div class="cards"><div><div><picture><img src="" alt=""></picture></div><div><h3>Card Title</h3><p>Card description.</p></div></div></div>',
+      variants: ['horizontal', 'featured'],
+    },
+    {
+      name: 'columns',
+      category: 'Structure',
+      description: 'Side-by-side content in 2-3 columns',
+      structure: '<div class="columns"><div><div><h3>Column One</h3><p>Content.</p></div><div><h3>Column Two</h3><p>Content.</p></div></div></div>',
+      variants: ['centered', 'wide'],
+    },
+    {
+      name: 'accordion',
+      category: 'Content',
+      description: 'Expandable questions and answers',
+      structure: '<div class="accordion"><div><div><h3>Question?</h3></div><div><p>Answer.</p></div></div></div>',
+      variants: [],
+    },
+    {
+      name: 'tabs',
+      category: 'Content',
+      description: 'Content organized in switchable tabs',
+      structure: '<div class="tabs"><div><div>Tab One</div><div><p>Content for tab one.</p></div></div><div><div>Tab Two</div><div><p>Content for tab two.</p></div></div></div>',
+      variants: [],
+    },
+    {
+      name: 'carousel',
+      category: 'Media',
+      description: 'Rotating images or content panels',
+      structure: '<div class="carousel"><div><div><picture><img src="" alt=""></picture></div></div><div><div><picture><img src="" alt=""></picture></div></div></div>',
+      variants: ['auto-play', 'full-width'],
+    },
+    {
+      name: 'quote',
+      category: 'Content',
+      description: 'Highlighted testimonial or pullquote',
+      structure: '<div class="quote"><div><div><p>"Quote text here."</p><p>— Author Name</p></div></div></div>',
+      variants: ['highlighted'],
+    },
+    {
+      name: 'embed',
+      category: 'Media',
+      description: 'Embedded content (YouTube, social media, etc.)',
+      structure: '<div class="embed"><div><div><a href="https://www.youtube.com/watch?v=VIDEO_ID">https://www.youtube.com/watch?v=VIDEO_ID</a></div></div></div>',
+      variants: [],
+    },
+    {
+      name: 'fragment',
+      category: 'Structure',
+      description: 'Reusable content section loaded from another path',
+      structure: '<div class="fragment"><div><div><a href="/fragments/example">/fragments/example</a></div></div></div>',
+      variants: [],
+    },
+    {
+      name: 'section-metadata',
+      category: 'Configuration',
+      description: 'Section styling and configuration (style, layout, background)',
+      structure: '<div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>',
+      variants: [],
+    },
+  ];
+
+  // Merge DB blocks with defaults (DB takes precedence)
+  const dbBlockNames = new Set((dbBlocks || []).map((b: Record<string, unknown>) => b.name));
+  const merged = [
+    ...(dbBlocks || []).map((b: Record<string, unknown>) => ({
+      name: b.name,
+      category: b.category || 'Custom',
+      description: '',
+      structure: '',
+      variants: [],
+      generativeConfig: b.generative_config ? JSON.parse(b.generative_config as string) : {},
+      valueMetadata: b.value_metadata ? JSON.parse(b.value_metadata as string) : {},
+      isCustom: true,
+    })),
+    ...defaultBlocks.filter((b) => !dbBlockNames.has(b.name)),
+  ];
+
+  return c.json({ blocks: merged });
 });
 
 export default content;
