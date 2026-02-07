@@ -20,6 +20,7 @@ export interface Env {
   DA_CLIENT_SECRET: string;
   DA_SERVICE_TOKEN: string;
   GITHUB_TOKEN: string;
+  ASSETS: R2Bucket;
   // Vars
   CORS_ORIGIN: string;
   DA_ADMIN_HOST?: string;

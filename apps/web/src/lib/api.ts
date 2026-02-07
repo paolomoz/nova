@@ -154,6 +154,20 @@ export interface AssetItem {
   lastModified?: string;
 }
 
+export interface AssetDetail {
+  id: string;
+  path: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  altText: string;
+  tags: string[];
+  colorPalette: string[];
+  updatedAt: string;
+}
+
 export const api = {
   // Auth
   getMe: () =>
@@ -224,13 +238,13 @@ export const api = {
     }),
 
   // Assets
-  listAssets: (projectId: string, path: string = '/media') =>
-    request<{ assets: AssetItem[] }>(`/content/${projectId}/assets?path=${encodeURIComponent(path)}`),
-  uploadAsset: async (projectId: string, path: string, file: File): Promise<{ ok: boolean; url: string; path: string }> => {
+  listAssets: (projectId: string, path: string = '/', search?: string) =>
+    request<{ assets: AssetDetail[] }>(`/assets/${projectId}/list?path=${encodeURIComponent(path)}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+  uploadAsset: async (projectId: string, path: string, file: File): Promise<{ ok: boolean; asset: AssetDetail }> => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('path', path);
-    const response = await fetch(`${API_BASE}/content/${projectId}/assets`, {
+    const response = await fetch(`${API_BASE}/assets/${projectId}/upload`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -238,6 +252,16 @@ export const api = {
     if (!response.ok) throw new ApiError(response.status, await response.text());
     return response.json();
   },
+  updateAsset: (projectId: string, assetId: string, data: { altText?: string; tags?: string[] }) =>
+    request(`/assets/${projectId}/${assetId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteAsset: (projectId: string, assetId: string) =>
+    request(`/assets/${projectId}/${assetId}`, { method: 'DELETE' }),
+  getAssetUrl: (projectId: string, path: string) =>
+    `/api/assets/${projectId}/file?path=${encodeURIComponent(path)}`,
+  generateImage: (projectId: string, prompt: string, style?: string) =>
+    request<{ ok: boolean; generation: { refinedPrompt: string; suggestedAltText: string; suggestedTags: string[]; suggestedFileName: string } }>(`/assets/${projectId}/generate`, {
+      method: 'POST', body: JSON.stringify({ prompt, style }),
+    }),
 
   // Block Library
   getBlockLibrary: (projectId: string) =>

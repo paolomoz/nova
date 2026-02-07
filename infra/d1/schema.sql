@@ -161,6 +161,29 @@ CREATE TABLE telemetry_daily (
   UNIQUE(project_id, path, date)
 );
 
+-- Asset metadata
+CREATE TABLE assets (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime_type TEXT,
+  size INTEGER,
+  width INTEGER,
+  height INTEGER,
+  alt_text TEXT,
+  tags TEXT DEFAULT '[]',               -- JSON array of auto-generated tags
+  color_palette TEXT DEFAULT '[]',      -- JSON array of dominant colors
+  r2_key TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, path)
+);
+
+CREATE INDEX idx_assets_project ON assets(project_id);
+CREATE INDEX idx_assets_path ON assets(project_id, path);
+
 -- Content search index (keyword search)
 CREATE TABLE content_index (
   id TEXT PRIMARY KEY,

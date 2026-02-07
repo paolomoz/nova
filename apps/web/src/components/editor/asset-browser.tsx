@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api, type AssetItem } from '@/lib/api';
+import { api, type AssetDetail } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,7 +11,7 @@ interface AssetBrowserProps {
 }
 
 export function AssetBrowser({ projectId, onInsertImage }: AssetBrowserProps) {
-  const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [assets, setAssets] = useState<AssetDetail[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -49,9 +49,10 @@ export function AssetBrowser({ projectId, onInsertImage }: AssetBrowserProps) {
     ? assets.filter((a) => a.name.toLowerCase().includes(filter.toLowerCase()))
     : assets;
 
-  const isImage = (ext: string) => ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext.toLowerCase());
+  const getExt = (name: string) => (name.split('.').pop() || '').toLowerCase();
+  const isImage = (name: string) => ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(getExt(name));
 
-  const handleDragStart = (e: React.DragEvent, asset: AssetItem) => {
+  const handleDragStart = (e: React.DragEvent, asset: AssetDetail) => {
     e.dataTransfer.setData('text/plain', asset.path);
     e.dataTransfer.effectAllowed = 'copy';
   };
@@ -110,14 +111,14 @@ export function AssetBrowser({ projectId, onInsertImage }: AssetBrowserProps) {
                 key={asset.path}
                 className="group flex flex-col items-center rounded-lg border p-2 text-center hover:bg-muted transition-colors"
                 onClick={() => {
-                  if (isImage(asset.ext)) {
+                  if (isImage(asset.name)) {
                     onInsertImage(asset.path, asset.name.replace(/\.[^.]+$/, ''));
                   }
                 }}
                 draggable
                 onDragStart={(e) => handleDragStart(e, asset)}
               >
-                {isImage(asset.ext) ? (
+                {isImage(asset.name) ? (
                   <div className="relative aspect-square w-full overflow-hidden rounded bg-muted">
                     <Image className="absolute inset-0 m-auto h-8 w-8 text-muted-foreground/30" />
                     {/* In production, this would show a thumbnail */}
