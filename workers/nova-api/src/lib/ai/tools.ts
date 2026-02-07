@@ -1,5 +1,16 @@
 import type { DAAdminClient } from '@nova/da-client';
 
+export interface ToolContext {
+  daClient: DAAdminClient;
+  db: D1Database;
+  vectorize: VectorizeIndex;
+  userId: string;
+  projectId: string;
+  voyageApiKey: string;
+  voyageModel: string;
+  embedQueue?: Queue;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -138,17 +149,83 @@ EDS block structure rules:
         required: [],
       },
     },
+    {
+      name: 'get_brand_profile',
+      description: 'Get the brand profile for the project including voice, visual, and content rules.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_block_library',
+      description: 'Get the EDS block catalog with structures, variants, and generative config. Use this to understand what blocks are available when creating or editing pages.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'get_value_scores',
+      description: 'Get content value scores for pages. Scores include engagement, conversion, CWV, SEO, and composite.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Optional page path to filter by. Omit for all pages.' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'get_telemetry',
+      description: 'Get page telemetry data including page views and Core Web Vitals (LCP, INP, CLS).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Page path to get telemetry for' },
+          days: { type: 'string', description: 'Number of days to look back (default 30)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'update_generative_config',
+      description: 'Update generative config for a path pattern: delivery mode, intent types, confidence thresholds.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path_pattern: { type: 'string', description: 'Path or glob pattern (e.g. "/products/*")' },
+          delivery_mode: { type: 'string', description: 'Delivery mode', enum: ['static', 'generative', 'hybrid'] },
+          intent_config: { type: 'string', description: 'JSON string of intent configuration' },
+          confidence_thresholds: { type: 'string', description: 'JSON string of confidence thresholds' },
+        },
+        required: ['path_pattern'],
+      },
+    },
+    {
+      name: 'semantic_search',
+      description: 'Search content using semantic similarity. Embeds the query via Voyage AI and queries Vectorize for related content.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language search query' },
+          limit: { type: 'string', description: 'Number of results (default 5)' },
+        },
+        required: ['query'],
+      },
+    },
   ];
 }
 
 export async function executeTool(
   name: string,
   input: Record<string, string>,
-  daClient: DAAdminClient,
-  db: D1Database,
-  userId: string,
-  projectId: string,
+  ctx: ToolContext,
 ): Promise<string> {
+  const { daClient, db, userId, projectId } = ctx;
+
   switch (name) {
     case 'list_pages': {
       const items = await daClient.list(input.path || '/');
@@ -161,6 +238,14 @@ export async function executeTool(
     case 'create_page': {
       await daClient.putSource(input.path, input.content);
       await logAction(db, userId, projectId, 'create_page', `AI created page at ${input.path}`, { path: input.path });
+      // Trigger embed queue
+      try {
+        if (ctx.embedQueue) {
+          await ctx.embedQueue.send({ type: 'content', projectId, path: input.path, html: input.content });
+        }
+      } catch {
+        // Non-fatal
+      }
       return `Page created at ${input.path}`;
     }
     case 'delete_page': {
@@ -238,6 +323,108 @@ export async function executeTool(
         )
         .bind(userId, projectId, limit)
         .all();
+      return JSON.stringify(results, null, 2);
+    }
+    case 'get_brand_profile': {
+      const profile = await db.prepare(
+        `SELECT name, voice, visual, content_rules, design_tokens FROM brand_profiles
+         WHERE project_id = ? ORDER BY name LIMIT 1`,
+      ).bind(projectId).first();
+
+      if (!profile) return JSON.stringify({ message: 'No brand profile configured for this project.' });
+      return JSON.stringify({
+        name: profile.name,
+        voice: JSON.parse((profile.voice as string) || '{}'),
+        visual: JSON.parse((profile.visual as string) || '{}'),
+        contentRules: JSON.parse((profile.content_rules as string) || '{}'),
+        designTokens: JSON.parse((profile.design_tokens as string) || '{}'),
+      }, null, 2);
+    }
+    case 'get_block_library': {
+      const { getBlockLibrary } = await import('../blocks.js');
+      const blocks = await getBlockLibrary(db, projectId);
+      return JSON.stringify(blocks, null, 2);
+    }
+    case 'get_value_scores': {
+      let query = 'SELECT path, engagement_score, conversion_score, cwv_score, seo_score, composite_score, sample_size FROM value_scores WHERE project_id = ?';
+      const bindings: string[] = [projectId];
+      if (input.path) {
+        query += ' AND path = ?';
+        bindings.push(input.path);
+      }
+      query += ' ORDER BY composite_score DESC LIMIT 50';
+      const { results } = await db.prepare(query).bind(...bindings).all();
+      return JSON.stringify(results, null, 2);
+    }
+    case 'get_telemetry': {
+      const days = parseInt(input.days || '30', 10);
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      let query = 'SELECT path, date, page_views, lcp_p75, inp_p75, cls_p75, conversion_events FROM telemetry_daily WHERE project_id = ? AND date >= ?';
+      const bindings: string[] = [projectId, since];
+      if (input.path) {
+        query += ' AND path = ?';
+        bindings.push(input.path);
+      }
+      query += ' ORDER BY date DESC LIMIT 100';
+      const { results } = await db.prepare(query).bind(...bindings).all();
+      return JSON.stringify(results, null, 2);
+    }
+    case 'update_generative_config': {
+      const updates: Record<string, string> = {};
+      if (input.delivery_mode) updates.delivery_mode = input.delivery_mode;
+      if (input.intent_config) updates.intent_config = input.intent_config;
+      if (input.confidence_thresholds) updates.confidence_thresholds = input.confidence_thresholds;
+
+      await db.prepare(
+        `INSERT INTO generative_config (id, project_id, path_pattern, delivery_mode, intent_config, confidence_thresholds)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(project_id, path_pattern) DO UPDATE SET
+           delivery_mode = COALESCE(excluded.delivery_mode, generative_config.delivery_mode),
+           intent_config = COALESCE(excluded.intent_config, generative_config.intent_config),
+           confidence_thresholds = COALESCE(excluded.confidence_thresholds, generative_config.confidence_thresholds),
+           updated_at = datetime('now')`,
+      ).bind(
+        crypto.randomUUID(),
+        projectId,
+        input.path_pattern,
+        input.delivery_mode || 'static',
+        input.intent_config || '{}',
+        input.confidence_thresholds || '{}',
+      ).run();
+      await logAction(db, userId, projectId, 'update_generative_config', `AI updated generative config for ${input.path_pattern}`, input);
+      return `Generative config updated for ${input.path_pattern}`;
+    }
+    case 'semantic_search': {
+      if (!ctx.voyageApiKey) return JSON.stringify({ error: 'Voyage API not configured', results: [] });
+      const limit = parseInt(input.limit || '5', 10);
+
+      // Embed query via Voyage
+      const embResponse = await fetch('https://api.voyageai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${ctx.voyageApiKey}`,
+        },
+        body: JSON.stringify({ input: [input.query], model: ctx.voyageModel || 'voyage-3' }),
+      });
+      if (!embResponse.ok) return JSON.stringify({ error: 'Failed to generate embedding', results: [] });
+      const embData = (await embResponse.json()) as { data: Array<{ embedding: number[] }> };
+      const queryVector = embData.data[0]?.embedding;
+      if (!queryVector) return JSON.stringify({ error: 'No embedding returned', results: [] });
+
+      // Query Vectorize
+      const vectorResults = await ctx.vectorize.query(queryVector, {
+        topK: limit,
+        filter: { projectId },
+        returnMetadata: 'all',
+      });
+
+      const results = vectorResults.matches.map((m) => ({
+        path: (m.metadata?.path as string) || '',
+        title: (m.metadata?.title as string) || '',
+        snippet: (m.metadata?.snippet as string) || '',
+        score: m.score,
+      }));
       return JSON.stringify(results, null, 2);
     }
     default:

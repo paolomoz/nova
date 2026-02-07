@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env, SessionData } from '../lib/types.js';
 import { getDAClientForProject } from '../services/da-client.js';
+import { getBlockLibrary } from '../lib/blocks.js';
 
 const content = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
@@ -87,6 +88,15 @@ content.put('/:projectId/source', async (c) => {
     await indexContent(c.env.DB, projectId, path, htmlContent);
   } catch {
     // Non-fatal: indexing failure shouldn't block page creation
+  }
+
+  // Queue embedding for semantic search
+  try {
+    if (c.env.EMBED_QUEUE) {
+      await c.env.EMBED_QUEUE.send({ type: 'content', projectId, path, html: htmlContent });
+    }
+  } catch {
+    // Non-fatal: embed queue failure shouldn't block page creation
   }
 
   return c.json({ ok: true, path });
@@ -330,7 +340,7 @@ content.get('/:projectId/templates', async (c) => {
   return c.json({ templates });
 });
 
-/** GET /api/content/:projectId/suggestions — AI suggestions based on recent actions */
+/** GET /api/content/:projectId/suggestions — AI suggestions based on recent actions + value + context */
 content.get('/:projectId/suggestions', async (c) => {
   const projectId = c.req.param('projectId');
   const session = c.get('session');
@@ -373,6 +383,62 @@ content.get('/:projectId/suggestions', async (c) => {
     }
   }
 
+  // Value-based suggestions: pages with low composite scores
+  try {
+    const { results: lowScorePages } = await c.env.DB.prepare(
+      `SELECT path, composite_score FROM value_scores
+       WHERE project_id = ? AND composite_score < 0.4 AND composite_score > 0
+       ORDER BY composite_score ASC LIMIT 3`,
+    ).bind(projectId).all();
+
+    for (const page of lowScorePages) {
+      suggestions.push({
+        text: `Improve ${page.path}`,
+        prompt: `The page ${page.path} has a low value score of ${(page.composite_score as number).toFixed(2)}. Analyze it and suggest improvements.`,
+      });
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // CWV-based suggestions: pages with poor performance
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const { results: slowPages } = await c.env.DB.prepare(
+      `SELECT path, AVG(lcp_p75) as avg_lcp, AVG(inp_p75) as avg_inp FROM telemetry_daily
+       WHERE project_id = ? AND date >= ? AND (lcp_p75 > 2500 OR inp_p75 > 200)
+       GROUP BY path LIMIT 2`,
+    ).bind(projectId, since).all();
+
+    for (const page of slowPages) {
+      const issues: string[] = [];
+      if ((page.avg_lcp as number) > 2500) issues.push(`LCP ${Math.round(page.avg_lcp as number)}ms`);
+      if ((page.avg_inp as number) > 200) issues.push(`INP ${Math.round(page.avg_inp as number)}ms`);
+      suggestions.push({
+        text: `Fix performance: ${page.path}`,
+        prompt: `The page ${page.path} has performance issues: ${issues.join(', ')}. What can be done to improve it?`,
+      });
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // User context-aware: tailor based on expertise
+  try {
+    const expertiseCtx = await c.env.DB.prepare(
+      `SELECT data FROM user_context WHERE user_id = ? AND project_id = ? AND context_type = 'expertise_level'`,
+    ).bind(session.userId, projectId).first<{ data: string }>();
+
+    if (!expertiseCtx || expertiseCtx.data === 'beginner') {
+      suggestions.push({
+        text: 'Explore available blocks',
+        prompt: 'Show me the available EDS blocks and what each one is used for.',
+      });
+    }
+  } catch {
+    // Non-fatal
+  }
+
   // Deduplicate and limit
   const seen = new Set<string>();
   const unique = suggestions.filter((s) => {
@@ -381,7 +447,7 @@ content.get('/:projectId/suggestions', async (c) => {
     return true;
   });
 
-  return c.json({ suggestions: unique.slice(0, 5) });
+  return c.json({ suggestions: unique.slice(0, 8) });
 });
 
 /** POST /api/content/:projectId/preview — trigger EDS preview */
@@ -481,105 +547,8 @@ content.post('/:projectId/assets', async (c) => {
 /** GET /api/content/:projectId/block-library — EDS block catalog */
 content.get('/:projectId/block-library', async (c) => {
   const projectId = c.req.param('projectId');
-
-  // Get project-specific blocks from DB
-  const { results: dbBlocks } = await c.env.DB.prepare(
-    'SELECT * FROM block_library WHERE project_id = ? ORDER BY category, name',
-  )
-    .bind(projectId)
-    .all();
-
-  // Default EDS block catalog (from Block Collection)
-  const defaultBlocks = [
-    {
-      name: 'hero',
-      category: 'Structure',
-      description: 'Large heading, text, and CTA buttons at the top of a page',
-      structure: '<div class="hero"><div><div><picture><img src="" alt=""></picture></div><div><h1>Heading</h1><p>Description</p><p><a href="#">CTA</a></p></div></div></div>',
-      variants: ['dark', 'centered', 'full-width'],
-    },
-    {
-      name: 'cards',
-      category: 'Content',
-      description: 'Grid of items with images, headings, and descriptions',
-      structure: '<div class="cards"><div><div><picture><img src="" alt=""></picture></div><div><h3>Card Title</h3><p>Card description.</p></div></div></div>',
-      variants: ['horizontal', 'featured'],
-    },
-    {
-      name: 'columns',
-      category: 'Structure',
-      description: 'Side-by-side content in 2-3 columns',
-      structure: '<div class="columns"><div><div><h3>Column One</h3><p>Content.</p></div><div><h3>Column Two</h3><p>Content.</p></div></div></div>',
-      variants: ['centered', 'wide'],
-    },
-    {
-      name: 'accordion',
-      category: 'Content',
-      description: 'Expandable questions and answers',
-      structure: '<div class="accordion"><div><div><h3>Question?</h3></div><div><p>Answer.</p></div></div></div>',
-      variants: [],
-    },
-    {
-      name: 'tabs',
-      category: 'Content',
-      description: 'Content organized in switchable tabs',
-      structure: '<div class="tabs"><div><div>Tab One</div><div><p>Content for tab one.</p></div></div><div><div>Tab Two</div><div><p>Content for tab two.</p></div></div></div>',
-      variants: [],
-    },
-    {
-      name: 'carousel',
-      category: 'Media',
-      description: 'Rotating images or content panels',
-      structure: '<div class="carousel"><div><div><picture><img src="" alt=""></picture></div></div><div><div><picture><img src="" alt=""></picture></div></div></div>',
-      variants: ['auto-play', 'full-width'],
-    },
-    {
-      name: 'quote',
-      category: 'Content',
-      description: 'Highlighted testimonial or pullquote',
-      structure: '<div class="quote"><div><div><p>"Quote text here."</p><p>— Author Name</p></div></div></div>',
-      variants: ['highlighted'],
-    },
-    {
-      name: 'embed',
-      category: 'Media',
-      description: 'Embedded content (YouTube, social media, etc.)',
-      structure: '<div class="embed"><div><div><a href="https://www.youtube.com/watch?v=VIDEO_ID">https://www.youtube.com/watch?v=VIDEO_ID</a></div></div></div>',
-      variants: [],
-    },
-    {
-      name: 'fragment',
-      category: 'Structure',
-      description: 'Reusable content section loaded from another path',
-      structure: '<div class="fragment"><div><div><a href="/fragments/example">/fragments/example</a></div></div></div>',
-      variants: [],
-    },
-    {
-      name: 'section-metadata',
-      category: 'Configuration',
-      description: 'Section styling and configuration (style, layout, background)',
-      structure: '<div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>',
-      variants: [],
-    },
-  ];
-
-  // Merge DB blocks with defaults (DB takes precedence)
-  const dbBlockNames = new Set((dbBlocks || []).map((b: Record<string, unknown>) => b.name));
-  const merged = [
-    ...(dbBlocks || []).map((b: Record<string, unknown>) => ({
-      name: b.name,
-      category: b.category || 'Custom',
-      description: '',
-      structure: '',
-      variants: [],
-      generativeConfig: b.generative_config ? JSON.parse(b.generative_config as string) : {},
-      valueMetadata: b.value_metadata ? JSON.parse(b.value_metadata as string) : {},
-      isCustom: true,
-    })),
-    ...defaultBlocks.filter((b) => !dbBlockNames.has(b.name)),
-  ];
-
-  return c.json({ blocks: merged });
+  const blocks = await getBlockLibrary(c.env.DB, projectId);
+  return c.json({ blocks });
 });
 
 export default content;

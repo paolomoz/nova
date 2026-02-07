@@ -197,4 +197,67 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query }),
     }),
+
+  // AI Streaming
+  streamAI: (projectId: string, prompt: string, onEvent: (event: SSEStreamEvent) => void): AbortController => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/ai/${projectId}/stream`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          onEvent({ event: 'error', data: { error: `HTTP ${response.status}` } });
+          return;
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) return;
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ') && currentEvent) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                onEvent({ event: currentEvent, data });
+              } catch {
+                // Invalid JSON — skip
+              }
+              currentEvent = '';
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          onEvent({ event: 'error', data: { error: (err as Error).message } });
+        }
+      }
+    })();
+
+    return controller;
+  },
 };
+
+export interface SSEStreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}

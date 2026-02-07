@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, SessionData } from '../lib/types.js';
+import { computeValueScores } from '../lib/value-scoring.js';
 
 const value = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
@@ -41,6 +42,13 @@ value.get('/:projectId/telemetry', async (c) => {
 
   const { results } = await c.env.DB.prepare(query).bind(...bindings).all();
   return c.json({ telemetry: results });
+});
+
+/** POST /api/value/:projectId/compute — trigger value score computation from telemetry */
+value.post('/:projectId/compute', async (c) => {
+  const projectId = c.req.param('projectId');
+  const updated = await computeValueScores(c.env.DB, projectId);
+  return c.json({ ok: true, scoresUpdated: updated });
 });
 
 export default value;

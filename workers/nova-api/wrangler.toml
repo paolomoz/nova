@@ -6,6 +6,11 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 GITHUB_CLIENT_ID = ""
 CORS_ORIGIN = "http://localhost:5173"
+VOYAGE_MODEL = "voyage-3"
+
+# [[queues.producers]]
+# queue = "nova-embed-queue"
+# binding = "EMBED_QUEUE"
 
 # [[ d1_databases ]]
 # binding = "DB"

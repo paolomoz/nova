@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import type { Env, SessionData } from './lib/types.js';
 import { authMiddleware } from './middleware/auth.js';
 import { tenantMiddleware } from './middleware/tenant.js';
+import { computeValueScores } from './lib/value-scoring.js';
 import authRoutes from './routes/auth.js';
 import contentRoutes from './routes/content.js';
 import searchRoutes from './routes/search.js';
@@ -58,10 +59,22 @@ app.route('/api/generative', generativeRoutes);
 app.route('/api/enterprise', enterpriseRoutes);
 app.route('/api/org', orgRoutes);
 
-// Scheduled handler for Operational Telemetry ingestion
+// Scheduled handler for Operational Telemetry ingestion + value scoring
 const scheduled: ExportedHandlerScheduledHandler<Env> = async (event, env, ctx) => {
   ctx.waitUntil(ingestTelemetry(env));
+  ctx.waitUntil(computeAllValueScores(env));
 };
+
+async function computeAllValueScores(env: Env): Promise<void> {
+  const { results: projects } = await env.DB.prepare('SELECT id FROM projects').all();
+  for (const project of projects) {
+    try {
+      await computeValueScores(env.DB, project.id as string);
+    } catch {
+      // Non-fatal: skip this project
+    }
+  }
+}
 
 async function ingestTelemetry(env: Env): Promise<void> {
   // Fetch all projects

@@ -114,9 +114,24 @@ search.post('/:projectId', async (c) => {
   return c.json({ results: results.slice(0, limit), query });
 });
 
-async function generateQueryEmbedding(_query: string, _env: Env): Promise<number[] | null> {
-  // Phase 3: Call Voyage AI to embed the query
-  return null;
+async function generateQueryEmbedding(query: string, env: Env): Promise<number[] | null> {
+  if (!env.VOYAGE_API_KEY) return null;
+  const response = await fetch('https://api.voyageai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.VOYAGE_API_KEY}`,
+    },
+    body: JSON.stringify({
+      input: [query],
+      model: env.VOYAGE_MODEL || 'voyage-3',
+    }),
+  });
+  if (!response.ok) return null;
+  const data = (await response.json()) as {
+    data: Array<{ embedding: number[] }>;
+  };
+  return data.data[0]?.embedding ?? null;
 }
 
 export default search;
