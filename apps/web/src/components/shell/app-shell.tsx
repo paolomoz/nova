@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2 } from 'lucide-react';
+import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -12,6 +12,8 @@ const navItems = [
   { path: '/brand', label: 'Brand', icon: Palette },
   { path: '/generative', label: 'Generative', icon: Sparkles },
   { path: '/enterprise', label: 'Enterprise', icon: Building2 },
+  { path: '/seo', label: 'SEO', icon: Search },
+  { path: '/fragments', label: 'Fragments', icon: FileJson },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

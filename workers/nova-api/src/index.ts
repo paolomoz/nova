@@ -15,6 +15,8 @@ import blocksRoutes from './routes/blocks.js';
 import designRoutes from './routes/design.js';
 import generativeRoutes from './routes/generative.js';
 import enterpriseRoutes from './routes/enterprise.js';
+import seoRoutes from './routes/seo.js';
+import fragmentsRoutes from './routes/fragments.js';
 import orgRoutes from './routes/org.js';
 
 const app = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
@@ -46,6 +48,8 @@ app.use('/api/blocks/*', tenantMiddleware);
 app.use('/api/design/*', tenantMiddleware);
 app.use('/api/generative/*', tenantMiddleware);
 app.use('/api/enterprise/*', tenantMiddleware);
+app.use('/api/seo/*', tenantMiddleware);
+app.use('/api/fragments/*', tenantMiddleware);
 
 app.route('/api/content', contentRoutes);
 app.route('/api/search', searchRoutes);
@@ -57,6 +61,8 @@ app.route('/api/blocks', blocksRoutes);
 app.route('/api/design', designRoutes);
 app.route('/api/generative', generativeRoutes);
 app.route('/api/enterprise', enterpriseRoutes);
+app.route('/api/seo', seoRoutes);
+app.route('/api/fragments', fragmentsRoutes);
 app.route('/api/org', orgRoutes);
 
 // Scheduled handler for Operational Telemetry ingestion + value scoring

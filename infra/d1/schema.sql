@@ -274,6 +274,56 @@ CREATE TABLE translations (
   UNIQUE(project_id, source_path, target_locale)
 );
 
+-- Content Fragments (structured content, JSON schema-based)
+CREATE TABLE content_fragment_models (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  schema TEXT NOT NULL DEFAULT '{}',   -- JSON Schema definition
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, name)
+);
+
+CREATE TABLE content_fragments (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  model_id TEXT NOT NULL REFERENCES content_fragment_models(id),
+  title TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',    -- JSON content matching model schema
+  status TEXT DEFAULT 'draft',        -- draft, published, archived
+  tags TEXT DEFAULT '[]',
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, slug)
+);
+
+-- SEO metadata
+CREATE TABLE seo_metadata (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  path TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  keywords TEXT DEFAULT '[]',
+  canonical_url TEXT,
+  og_image TEXT,
+  structured_data TEXT DEFAULT '{}',   -- JSON-LD
+  robots TEXT DEFAULT 'index, follow',
+  internal_links TEXT DEFAULT '[]',
+  seo_score INTEGER,
+  llm_citability_score INTEGER,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, path)
+);
+
+CREATE INDEX idx_fragments_project ON content_fragments(project_id);
+CREATE INDEX idx_fragment_models_project ON content_fragment_models(project_id);
+CREATE INDEX idx_seo_project ON seo_metadata(project_id);
+
 CREATE INDEX idx_workflows_project ON workflows(project_id);
 CREATE INDEX idx_workflows_status ON workflows(project_id, status);
 CREATE INDEX idx_launches_project ON launches(project_id);

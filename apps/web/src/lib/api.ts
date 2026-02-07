@@ -332,6 +332,40 @@ export const api = {
   getGenerativeStats: (projectId: string, days = 30) =>
     request<GenerativeStats>(`/generative/${projectId}/monitoring/stats?days=${days}`),
 
+  // SEO
+  getSeoPages: (projectId: string) =>
+    request<{ pages: SeoMetadata[] }>(`/seo/${projectId}`),
+  getPageSeo: (projectId: string, path: string) =>
+    request<{ seo: SeoMetadata | null }>(`/seo/${projectId}/page?path=${encodeURIComponent(path)}`),
+  updatePageSeo: (projectId: string, data: { path: string; title?: string; description?: string; keywords?: string[]; canonicalUrl?: string; ogImage?: string; structuredData?: object; robots?: string }) =>
+    request(`/seo/${projectId}/page`, { method: 'PUT', body: JSON.stringify(data) }),
+  analyzeSeo: (projectId: string, path: string) =>
+    request<{ ok: boolean; analysis: SeoAnalysis }>(`/seo/${projectId}/analyze`, { method: 'POST', body: JSON.stringify({ path }) }),
+  generateStructuredData: (projectId: string, path: string, type?: string) =>
+    request<{ ok: boolean; structuredData: Record<string, unknown> }>(`/seo/${projectId}/generate-structured-data`, { method: 'POST', body: JSON.stringify({ path, type }) }),
+
+  // Content Fragments
+  getFragmentModels: (projectId: string) =>
+    request<{ models: FragmentModel[] }>(`/fragments/${projectId}/models`),
+  createFragmentModel: (projectId: string, data: { name: string; description?: string; schema: object }) =>
+    request<{ ok: boolean; id: string }>(`/fragments/${projectId}/models`, { method: 'POST', body: JSON.stringify(data) }),
+  updateFragmentModel: (projectId: string, modelId: string, data: { name?: string; description?: string; schema?: object }) =>
+    request(`/fragments/${projectId}/models/${modelId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteFragmentModel: (projectId: string, modelId: string) =>
+    request(`/fragments/${projectId}/models/${modelId}`, { method: 'DELETE' }),
+  getFragments: (projectId: string, modelId?: string) =>
+    request<{ fragments: ContentFragment[] }>(`/fragments/${projectId}${modelId ? `?modelId=${modelId}` : ''}`),
+  getFragment: (projectId: string, fragmentId: string) =>
+    request<{ fragment: ContentFragment & { modelSchema: Record<string, unknown> } }>(`/fragments/${projectId}/${fragmentId}`),
+  createFragment: (projectId: string, data: { modelId: string; title: string; slug: string; data: object; status?: string; tags?: string[] }) =>
+    request<{ ok: boolean; id: string }>(`/fragments/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
+  updateFragment: (projectId: string, fragmentId: string, data: { title?: string; data?: object; status?: string; tags?: string[] }) =>
+    request(`/fragments/${projectId}/${fragmentId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteFragment: (projectId: string, fragmentId: string) =>
+    request(`/fragments/${projectId}/${fragmentId}`, { method: 'DELETE' }),
+  generateFragmentContent: (projectId: string, modelId: string, prompt: string) =>
+    request<{ ok: boolean; generated: { title: string; slug: string; data: Record<string, unknown> } }>(`/fragments/${projectId}/generate`, { method: 'POST', body: JSON.stringify({ modelId, prompt }) }),
+
   // Enterprise — Workflows
   getWorkflows: (projectId: string, status?: string) =>
     request<{ workflows: Workflow[] }>(`/enterprise/${projectId}/workflows${status ? `?status=${status}` : ''}`),
@@ -454,6 +488,55 @@ export const api = {
     return controller;
   },
 };
+
+export interface SeoMetadata {
+  id: string;
+  path: string;
+  title: string | null;
+  description: string | null;
+  keywords: string[];
+  canonicalUrl: string | null;
+  ogImage: string | null;
+  structuredData: Record<string, unknown>;
+  robots: string;
+  internalLinks: Array<{ targetPath: string; anchorText: string; reason: string }>;
+  seoScore: number | null;
+  llmCitabilityScore: number | null;
+  updatedAt?: string;
+}
+
+export interface SeoAnalysis {
+  seoScore: number;
+  llmCitabilityScore: number;
+  suggestedTitle: string;
+  suggestedDescription: string;
+  suggestedKeywords: string[];
+  structuredData: Record<string, unknown>;
+  internalLinks: Array<{ targetPath: string; anchorText: string; reason: string }>;
+  issues: Array<{ severity: string; description: string; fix: string }>;
+  llmIssues: Array<{ description: string; fix: string }>;
+}
+
+export interface FragmentModel {
+  id: string;
+  name: string;
+  description: string | null;
+  schema: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ContentFragment {
+  id: string;
+  modelId: string;
+  modelName: string;
+  title: string;
+  slug: string;
+  data: Record<string, unknown>;
+  status: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface Workflow {
   id: string;

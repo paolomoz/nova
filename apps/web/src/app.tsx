@@ -12,6 +12,8 @@ import { GenerativePage } from '@/routes/generative/index';
 import { BlocksPage } from '@/routes/blocks/index';
 import { BrandPage } from '@/routes/brand/index';
 import { EnterprisePage } from '@/routes/enterprise/index';
+import { SeoPage } from '@/routes/seo/index';
+import { FragmentsPage } from '@/routes/fragments/index';
 import { SettingsPage } from '@/routes/settings/index';
 
 const queryClient = new QueryClient({
@@ -53,6 +55,8 @@ function AuthenticatedRoutes() {
         <Route path="/generative/*" element={<GenerativePage />} />
         <Route path="/brand/*" element={<BrandPage />} />
         <Route path="/enterprise/*" element={<EnterprisePage />} />
+        <Route path="/seo/*" element={<SeoPage />} />
+        <Route path="/fragments/*" element={<FragmentsPage />} />
         <Route path="/settings/*" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/sites" />} />
       </Routes>
