@@ -1,17 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Command } from 'cmdk';
 import { useAI } from '@/lib/ai';
-import { Sparkles, Clock, Loader2 } from 'lucide-react';
+import { useProject } from '@/lib/project';
+import { api, type AISuggestion } from '@/lib/api';
+import { Sparkles, Clock, Loader2, Lightbulb } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
-interface CommandBarProps {
-  projectId?: string;
-}
-
-export function CommandBar({ projectId }: CommandBarProps) {
+export function CommandBar() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const { loading, response, recentActions, execute, loadHistory } = useAI();
+  const projectId = useProject((s) => s.activeProjectId);
 
   // Cmd+K to open
   useEffect(() => {
@@ -25,10 +25,11 @@ export function CommandBar({ projectId }: CommandBarProps) {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  // Load history when opened
+  // Load history and suggestions when opened
   useEffect(() => {
     if (open && projectId) {
       loadHistory(projectId);
+      api.getSuggestions(projectId).then((data) => setSuggestions(data.suggestions)).catch(() => {});
     }
   }, [open, projectId, loadHistory]);
 
@@ -67,6 +68,27 @@ export function CommandBar({ projectId }: CommandBarProps) {
               </div>
             )}
 
+            {/* AI Suggestions */}
+            {suggestions.length > 0 && !input && !response && (
+              <Command.Group heading="Suggestions">
+                {suggestions.map((suggestion, i) => (
+                  <Command.Item
+                    key={i}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
+                    onSelect={() => {
+                      if (projectId) {
+                        execute(projectId, suggestion.prompt);
+                        setSuggestions([]);
+                      }
+                    }}
+                  >
+                    <Lightbulb className="h-3 w-3 text-amber-500" />
+                    <span className="flex-1">{suggestion.text}</span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
+
             {/* Recent Actions */}
             {recentActions.length > 0 && (
               <Command.Group heading="Recent Actions">
@@ -85,7 +107,7 @@ export function CommandBar({ projectId }: CommandBarProps) {
               </Command.Group>
             )}
 
-            {!response && recentActions.length === 0 && !loading && (
+            {!response && recentActions.length === 0 && suggestions.length === 0 && !loading && (
               <Command.Empty className="py-6 text-center text-sm text-muted-foreground">
                 Type a command or ask a question. Try "list all pages under /en"
               </Command.Empty>

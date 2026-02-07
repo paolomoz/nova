@@ -154,6 +154,19 @@ CREATE TABLE telemetry_daily (
   UNIQUE(project_id, path, date)
 );
 
+-- Content search index (keyword search)
+CREATE TABLE content_index (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  path TEXT NOT NULL,
+  title TEXT,
+  body TEXT,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(project_id, path)
+);
+
+CREATE INDEX idx_content_index_project ON content_index(project_id);
+
 -- Indexes
 CREATE INDEX idx_value_scores_project ON value_scores(project_id);
 CREATE INDEX idx_value_scores_path ON value_scores(project_id, path);

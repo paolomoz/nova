@@ -5,7 +5,7 @@ export interface ToolDefinition {
   description: string;
   input_schema: {
     type: 'object';
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
     required: string[];
   };
 }
@@ -36,7 +36,7 @@ export function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'create_page',
-      description: 'Create a new page with HTML content. Use standard EDS block markup.',
+      description: 'Create a new page with HTML content. Use standard EDS block markup with div-based blocks.',
       input_schema: {
         type: 'object',
         properties: {
@@ -58,14 +58,61 @@ export function getToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'copy_page',
+      description: 'Copy a page or folder to a new location.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          source: { type: 'string', description: 'Source path to copy from' },
+          destination: { type: 'string', description: 'Destination path to copy to' },
+        },
+        required: ['source', 'destination'],
+      },
+    },
+    {
+      name: 'move_page',
+      description: 'Move a page or folder to a new location. Also used for renaming (same parent directory, different name).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          source: { type: 'string', description: 'Source path' },
+          destination: { type: 'string', description: 'Destination path' },
+        },
+        required: ['source', 'destination'],
+      },
+    },
+    {
       name: 'search_content',
-      description: 'Search across all content using natural language. Returns matching pages with relevance scores.',
+      description: 'Search across all content using keywords. Returns matching pages with titles and snippets.',
       input_schema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search query' },
         },
         required: ['query'],
+      },
+    },
+    {
+      name: 'get_page_properties',
+      description: 'Get page properties including delivery mode (static/generative/hybrid) and value annotations.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Page path' },
+        },
+        required: ['path'],
+      },
+    },
+    {
+      name: 'set_delivery_mode',
+      description: 'Set the delivery mode for a page path. Controls whether content is served statically, generated dynamically, or hybrid.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Page path or glob pattern (e.g. "/products/*")' },
+          mode: { type: 'string', description: 'Delivery mode', enum: ['static', 'generative', 'hybrid'] },
+        },
+        required: ['path', 'mode'],
       },
     },
     {
@@ -101,15 +148,73 @@ export async function executeTool(
     }
     case 'create_page': {
       await daClient.putSource(input.path, input.content);
+      await logAction(db, userId, projectId, 'create_page', `AI created page at ${input.path}`, { path: input.path });
       return `Page created at ${input.path}`;
     }
     case 'delete_page': {
       await daClient.deleteSource(input.path);
+      await logAction(db, userId, projectId, 'delete_page', `AI deleted page at ${input.path}`, { path: input.path });
       return `Page deleted at ${input.path}`;
     }
+    case 'copy_page': {
+      await daClient.copy(input.source, input.destination);
+      await logAction(db, userId, projectId, 'copy_page', `AI copied ${input.source} to ${input.destination}`, { source: input.source, destination: input.destination });
+      return `Copied ${input.source} to ${input.destination}`;
+    }
+    case 'move_page': {
+      await daClient.move(input.source, input.destination);
+      const isRename = input.source.split('/').slice(0, -1).join('/') === input.destination.split('/').slice(0, -1).join('/');
+      const actionType = isRename ? 'rename_page' : 'move_page';
+      const desc = isRename
+        ? `AI renamed ${input.source.split('/').pop()} to ${input.destination.split('/').pop()}`
+        : `AI moved ${input.source} to ${input.destination}`;
+      await logAction(db, userId, projectId, actionType, desc, { source: input.source, destination: input.destination });
+      return isRename
+        ? `Renamed to ${input.destination.split('/').pop()}`
+        : `Moved ${input.source} to ${input.destination}`;
+    }
     case 'search_content': {
-      // Phase 3: full semantic search
-      return JSON.stringify({ message: 'Search not yet available', query: input.query });
+      const keywords = input.query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      if (keywords.length === 0) return JSON.stringify({ results: [] });
+
+      const conditions = keywords.map(() => '(LOWER(title) LIKE ? OR LOWER(body) LIKE ?)').join(' AND ');
+      const bindings: string[] = [projectId];
+      for (const kw of keywords) {
+        bindings.push(`%${kw}%`, `%${kw}%`);
+      }
+
+      const { results } = await db
+        .prepare(`SELECT path, title, substr(body, 1, 200) as snippet FROM content_index WHERE project_id = ? AND ${conditions} LIMIT 10`)
+        .bind(...bindings)
+        .all();
+      return JSON.stringify(results, null, 2);
+    }
+    case 'get_page_properties': {
+      const config = await db.prepare(
+        `SELECT delivery_mode FROM generative_config
+         WHERE project_id = ? AND (path_pattern = ? OR ? GLOB path_pattern)
+         ORDER BY length(path_pattern) DESC LIMIT 1`,
+      ).bind(projectId, input.path, input.path).first<{ delivery_mode: string }>();
+
+      const { results: annotations } = await db.prepare(
+        'SELECT audience, situation, outcome, composite_score FROM value_scores WHERE project_id = ? AND path = ?',
+      ).bind(projectId, input.path).all();
+
+      return JSON.stringify({
+        path: input.path,
+        deliveryMode: config?.delivery_mode || 'static',
+        annotations,
+      }, null, 2);
+    }
+    case 'set_delivery_mode': {
+      await db.prepare(
+        `INSERT INTO generative_config (id, project_id, path_pattern, delivery_mode)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(project_id, path_pattern) DO UPDATE SET
+           delivery_mode = excluded.delivery_mode, updated_at = datetime('now')`,
+      ).bind(crypto.randomUUID(), projectId, input.path, input.mode).run();
+      await logAction(db, userId, projectId, 'set_delivery_mode', `AI set ${input.path} to ${input.mode}`, { path: input.path, mode: input.mode });
+      return `Delivery mode for ${input.path} set to ${input.mode}`;
     }
     case 'get_action_history': {
       const limit = parseInt(input.limit || '10', 10);
@@ -126,4 +231,21 @@ export async function executeTool(
     default:
       return `Unknown tool: ${name}`;
   }
+}
+
+function logAction(
+  db: D1Database,
+  userId: string,
+  projectId: string,
+  actionType: string,
+  description: string,
+  input: Record<string, unknown>,
+) {
+  return db
+    .prepare(
+      `INSERT INTO action_history (id, user_id, project_id, action_type, description, input)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), userId, projectId, actionType, description, JSON.stringify(input))
+    .run();
 }

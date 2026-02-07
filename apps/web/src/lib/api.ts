@@ -32,34 +32,115 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Types
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  da_org: string;
+  da_repo: string;
+}
+
+export interface ListItem {
+  name: string;
+  path: string;
+  ext?: string;
+  lastModified?: string;
+}
+
+export interface PageTemplate {
+  id: string;
+  name: string;
+  description: string;
+  html: string;
+}
+
+export interface SearchResult {
+  path: string;
+  title: string;
+  snippet: string;
+  score: number;
+  source: 'keyword' | 'semantic';
+}
+
+export interface PageProperties {
+  path: string;
+  deliveryMode: string;
+  annotations: Array<{
+    id?: string;
+    audience?: string;
+    situation?: string;
+    outcome?: string;
+    composite_score?: number;
+  }>;
+}
+
+export interface AISuggestion {
+  text: string;
+  prompt: string;
+}
+
 export const api = {
   // Auth
-  getMe: () => request<{ user: { id: string; email: string; name: string; avatarUrl: string }; org: { id: string; slug: string; name: string } }>('/auth/me'),
-  loginWithGitHub: (code: string) => request('/auth/github/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+  getMe: () =>
+    request<{
+      user: { id: string; email: string; name: string; avatarUrl: string };
+      org: { id: string; slug: string; name: string };
+    }>('/auth/me'),
+  loginWithGitHub: (code: string) =>
+    request('/auth/github/callback', { method: 'POST', body: JSON.stringify({ code }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // Org
-  getProjects: () => request<{ projects: Array<{ id: string; name: string; slug: string; da_org: string; da_repo: string }> }>('/org/projects'),
+  getProjects: () => request<{ projects: Project[] }>('/org/projects'),
   createProject: (data: { name: string; slug: string; daOrg: string; daRepo: string }) =>
     request<{ id: string }>('/org/projects', { method: 'POST', body: JSON.stringify(data) }),
 
   // Content
   listPages: (projectId: string, path: string = '/') =>
-    request<{ items: Array<{ name: string; path: string; ext?: string; lastModified?: string }> }>(`/content/${projectId}/list?path=${encodeURIComponent(path)}`),
+    request<{ items: ListItem[] }>(`/content/${projectId}/list?path=${encodeURIComponent(path)}`),
   getPageSource: (projectId: string, path: string) =>
     request<{ content: string; contentType: string }>(`/content/${projectId}/source?path=${encodeURIComponent(path)}`),
   createPage: (projectId: string, path: string, content: string) =>
     request(`/content/${projectId}/source`, { method: 'PUT', body: JSON.stringify({ path, content }) }),
   deletePage: (projectId: string, path: string) =>
     request(`/content/${projectId}/source?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+  copyPage: (projectId: string, source: string, destination: string) =>
+    request(`/content/${projectId}/copy`, { method: 'POST', body: JSON.stringify({ source, destination }) }),
+  movePage: (projectId: string, source: string, destination: string) =>
+    request(`/content/${projectId}/move`, { method: 'POST', body: JSON.stringify({ source, destination }) }),
+
+  // Properties
+  getProperties: (projectId: string, path: string) =>
+    request<PageProperties>(`/content/${projectId}/properties?path=${encodeURIComponent(path)}`),
+  updateProperties: (projectId: string, data: { path: string; deliveryMode?: string; annotation?: { audience?: string; situation?: string; outcome?: string } }) =>
+    request(`/content/${projectId}/properties`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteAnnotation: (projectId: string, id: string) =>
+    request(`/content/${projectId}/annotation?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Templates
+  getTemplates: (projectId: string) =>
+    request<{ templates: PageTemplate[] }>(`/content/${projectId}/templates`),
+
+  // Suggestions
+  getSuggestions: (projectId: string) =>
+    request<{ suggestions: AISuggestion[] }>(`/content/${projectId}/suggestions`),
 
   // AI
   executeAI: (projectId: string, prompt: string) =>
-    request<{ response: string; toolCalls: Array<{ name: string; input: Record<string, string>; result: string }> }>(`/ai/${projectId}/execute`, { method: 'POST', body: JSON.stringify({ prompt }) }),
+    request<{
+      response: string;
+      toolCalls: Array<{ name: string; input: Record<string, string>; result: string }>;
+    }>(`/ai/${projectId}/execute`, { method: 'POST', body: JSON.stringify({ prompt }) }),
   getActionHistory: (projectId: string, limit: number = 20) =>
-    request<{ actions: Array<{ id: string; action_type: string; description: string; created_at: string }> }>(`/ai/${projectId}/history?limit=${limit}`),
+    request<{
+      actions: Array<{ id: string; action_type: string; description: string; created_at: string }>;
+    }>(`/ai/${projectId}/history?limit=${limit}`),
 
   // Search
   search: (projectId: string, query: string) =>
-    request<{ results: Array<{ path: string; score: number; snippet?: string }> }>(`/search/${projectId}`, { method: 'POST', body: JSON.stringify({ query }) }),
+    request<{ results: SearchResult[]; query: string }>(`/search/${projectId}`, {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
 };
