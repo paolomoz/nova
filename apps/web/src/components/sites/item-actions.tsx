@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, type ListItem } from '@/lib/api';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MoreHorizontal, Copy, Move, Pencil, Trash2, Info, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Copy, Move, Pencil, Trash2, Info, Loader2, FileEdit } from 'lucide-react';
 
 interface ItemActionsProps {
   item: ListItem;
@@ -16,6 +17,7 @@ interface ItemActionsProps {
 type DialogType = 'rename' | 'copy' | 'move' | 'delete' | null;
 
 export function ItemActions({ item, projectId, onRefresh, onSelectForProperties }: ItemActionsProps) {
+  const navigate = useNavigate();
   const [activeDialog, setActiveDialog] = useState<DialogType>(null);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -99,6 +101,12 @@ export function ItemActions({ item, projectId, onRefresh, onSelectForProperties 
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {!isFolder && (
+            <DropdownMenuItem onClick={() => navigate(`/editor?path=${encodeURIComponent(item.path)}`)}>
+              <FileEdit className="mr-2 h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+          )}
           {!isFolder && (
             <DropdownMenuItem onClick={() => onSelectForProperties(item.path)}>
               <Info className="mr-2 h-4 w-4" />

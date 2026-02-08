@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, type ListItem } from '@/lib/api';
 import { useProject } from '@/lib/project';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ type SortField = 'name' | 'lastModified';
 type SortOrder = 'asc' | 'desc';
 
 export function SitesPage() {
+  const navigate = useNavigate();
   // Project state (shared store)
   const { projects, activeProjectId: projectId, loading: projectsLoading, loadProjects, setActiveProject } = useProject();
 
@@ -123,6 +125,10 @@ export function SitesPage() {
     });
   };
 
+  const openInEditor = (path: string) => {
+    navigate(`/editor?path=${encodeURIComponent(path)}`);
+  };
+
   const navigateTo = (path: string) => {
     setCurrentPath(path);
     setSelectedItems(new Set());
@@ -206,6 +212,9 @@ export function SitesPage() {
                 setCurrentPath(item.path);
               }
               setSelectedItems(new Set([item.path]));
+            }}
+            onDoubleClick={() => {
+              if (!isFolder) openInEditor(item.path);
             }}
           >
             {isFolder ? (
@@ -342,6 +351,9 @@ export function SitesPage() {
                         if (isFolder) navigateTo(item.path);
                         setSelectedItems(new Set([item.path]));
                       }}
+                      onDoubleClick={() => {
+                        if (!isFolder) openInEditor(item.path);
+                      }}
                     >
                       {isFolder ? (
                         <Folder className="h-4 w-4 text-muted-foreground" />
@@ -384,6 +396,9 @@ export function SitesPage() {
                             onClick={() => {
                               if (isFolder) handleColumnNavigate(item.path, colIdx);
                               setSelectedItems(new Set([item.path]));
+                            }}
+                            onDoubleClick={() => {
+                              if (!isFolder) openInEditor(item.path);
                             }}
                           >
                             {isFolder ? (
