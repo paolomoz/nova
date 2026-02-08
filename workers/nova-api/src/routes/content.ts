@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env, SessionData } from '../lib/types.js';
 import { getDAClientForProject } from '../services/da-client.js';
 import { getBlockLibrary } from '../lib/blocks.js';
+import { buildWysiwygPage, buildFallbackPage } from '../lib/wysiwyg-bridge.js';
 
 const content = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
@@ -68,8 +69,14 @@ content.get('/:projectId/source', async (c) => {
   const path = c.req.query('path');
   if (!path) return c.json({ error: 'path required' }, 400);
   const client = await getDAClientForProject(c.env, projectId);
-  const source = await client.getSource(path);
-  return c.json(source);
+  // Ensure path has .html extension for DA source API
+  const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
+  try {
+    const source = await client.getSource(sourcePath);
+    return c.json(source);
+  } catch {
+    return c.json({ error: 'Page not found', content: '', contentType: 'text/html' }, 404);
+  }
 });
 
 /** PUT /api/content/:projectId/source — create or update page */
@@ -78,7 +85,8 @@ content.put('/:projectId/source', async (c) => {
   const { path, content: htmlContent } = await c.req.json<{ path: string; content: string }>();
   if (!path || !htmlContent) return c.json({ error: 'path and content required' }, 400);
   const client = await getDAClientForProject(c.env, projectId);
-  await client.putSource(path, htmlContent);
+  const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
+  await client.putSource(sourcePath, htmlContent);
 
   const session = c.get('session');
   await logAction(c.env.DB, session.userId, projectId, 'create_page', `Created/updated page at ${path}`, { path });
@@ -542,6 +550,109 @@ content.post('/:projectId/assets', async (c) => {
   await logAction(c.env.DB, session.userId, projectId, 'upload_asset', `Uploaded ${file.name} to ${uploadPath}`, { path: uploadPath, name: file.name });
 
   return c.json({ ok: true, url, path: uploadPath });
+});
+
+/** GET /api/content/:projectId/wysiwyg — proxied AEM page with editing bridge */
+content.get('/:projectId/wysiwyg', async (c) => {
+  const projectId = c.req.param('projectId');
+  const path = c.req.query('path');
+  if (!path) return c.html(buildFallbackPage('No page path specified.'), 400);
+
+  // Look up project for AEM config
+  const project = await c.env.DB.prepare(
+    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
+  )
+    .bind(projectId)
+    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
+  if (!project) return c.html(buildFallbackPage('Project not found.'), 404);
+
+  const org = project.github_org || project.da_org;
+  const site = project.github_repo || project.da_repo;
+  const aemBaseUrl = `https://main--${site}--${org}.aem.page`;
+  // AEM Edge Delivery: strip .html, and /index → /
+  let aemPath = path.replace(/\.html$/, '');
+  if (aemPath.endsWith('/index')) aemPath = aemPath.slice(0, -5);
+  const aemPageUrl = `${aemBaseUrl}${aemPath}`;
+
+  // Fetch rendered HTML from AEM (with timeout)
+  let renderedHtml: string;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const aemResponse = await fetch(aemPageUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!aemResponse.ok) {
+      return c.html(
+        buildFallbackPage(`AEM returned ${aemResponse.status}. Click Preview to generate the AEM preview first.`),
+        200,
+      );
+    }
+    renderedHtml = await aemResponse.text();
+  } catch {
+    return c.html(
+      buildFallbackPage('Could not reach AEM Edge Delivery. Click Preview to warm the cache, then try again.'),
+      200,
+    );
+  }
+
+  // Fetch source HTML from DA
+  let sourceHtml = '';
+  try {
+    const client = await getDAClientForProject(c.env, projectId);
+    const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
+    const source = await client.getSource(sourcePath);
+    sourceHtml = source.content || '';
+  } catch {
+    // If source fetch fails, we still show the WYSIWYG but editing won't round-trip
+    sourceHtml = '';
+  }
+
+  // Build the proxied page with editing bridge.
+  // All URLs are rewritten to go through the same-origin proxy to avoid CORS.
+  const proxyBasePath = `/api/content/${projectId}/aem-proxy`;
+  const html = buildWysiwygPage(renderedHtml, sourceHtml, proxyBasePath, aemBaseUrl);
+  return c.html(html);
+});
+
+/** GET /api/content/:projectId/aem-proxy/* — reverse proxy for AEM static assets */
+content.get('/:projectId/aem-proxy/*', async (c) => {
+  const projectId = c.req.param('projectId');
+  // Extract the proxied path from the URL (after /aem-proxy)
+  const url = new URL(c.req.url);
+  const proxyMarker = `/aem-proxy`;
+  const markerIdx = url.pathname.indexOf(proxyMarker);
+  const assetPath = markerIdx >= 0 ? url.pathname.slice(markerIdx + proxyMarker.length) || '/' : '/';
+
+  const project = await c.env.DB.prepare(
+    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
+  )
+    .bind(projectId)
+    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
+  if (!project) return c.text('Not found', 404);
+
+  const org = project.github_org || project.da_org;
+  const site = project.github_repo || project.da_repo;
+  const aemUrl = `https://main--${site}--${org}.aem.page${assetPath}${url.search}`;
+
+  try {
+    const aemResponse = await fetch(aemUrl);
+    if (!aemResponse.ok) {
+      return c.text(`AEM ${aemResponse.status}`, aemResponse.status as 404);
+    }
+
+    const contentType = aemResponse.headers.get('content-type') || 'application/octet-stream';
+    const body = await aemResponse.arrayBuffer();
+
+    return new Response(body, {
+      headers: {
+        'content-type': contentType,
+        'cache-control': 'public, max-age=300',
+        'access-control-allow-origin': '*',
+      },
+    });
+  } catch {
+    return c.text('Proxy error', 502);
+  }
 });
 
 /** GET /api/content/:projectId/block-library — EDS block catalog */

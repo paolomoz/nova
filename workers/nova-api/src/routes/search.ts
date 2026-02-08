@@ -83,7 +83,7 @@ search.post('/:projectId', async (c) => {
   // 2. Vectorize semantic search (if available)
   try {
     const queryVector = await generateQueryEmbedding(query, c.env);
-    if (queryVector) {
+    if (queryVector && c.env.VECTORIZE) {
       const vectorResults = await c.env.VECTORIZE.query(queryVector, {
         topK: limit,
         filter: { projectId },

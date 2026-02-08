@@ -348,4 +348,86 @@ auth.get('/me', async (c) => {
   });
 });
 
+/** POST /api/auth/dev-login — create a test session (local dev only) */
+auth.post('/dev-login', async (c) => {
+  if (c.env.DEV_MODE !== 'true') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  // Upsert test user
+  const userId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO users (id, github_id, email, name, avatar_url)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(github_id) DO UPDATE SET
+       email = excluded.email,
+       name = excluded.name,
+       updated_at = datetime('now')`,
+  )
+    .bind(userId, 'dev-0', 'dev@localhost', 'Test User', '')
+    .run();
+
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE github_id = ?')
+    .bind('dev-0')
+    .first<{ id: string }>();
+  const actualUserId = user!.id;
+
+  // Upsert test org
+  const orgId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO orgs (id, name, slug)
+     VALUES (?, ?, ?)
+     ON CONFLICT(slug) DO NOTHING`,
+  )
+    .bind(orgId, 'Dev Org', 'dev-org')
+    .run();
+
+  const org = await c.env.DB.prepare('SELECT id FROM orgs WHERE slug = ?')
+    .bind('dev-org')
+    .first<{ id: string }>();
+  const actualOrgId = org!.id;
+
+  // Ensure membership
+  await c.env.DB.prepare(
+    `INSERT INTO org_members (org_id, user_id, role)
+     VALUES (?, ?, 'admin')
+     ON CONFLICT(org_id, user_id) DO NOTHING`,
+  )
+    .bind(actualOrgId, actualUserId)
+    .run();
+
+  // Create session
+  const sessionToken = crypto.randomUUID();
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(sessionToken));
+  const tokenHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const sessionId = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  await c.env.DB.prepare(
+    'INSERT INTO sessions (id, user_id, org_id, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)',
+  )
+    .bind(sessionId, actualUserId, actualOrgId, tokenHash, expiresAt)
+    .run();
+
+  const cookie = `nova_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`;
+
+  return c.json(
+    {
+      user: {
+        id: actualUserId,
+        email: 'dev@localhost',
+        name: 'Test User',
+        avatarUrl: '',
+      },
+      org: { id: actualOrgId, slug: 'dev-org' },
+    },
+    200,
+    { 'Set-Cookie': cookie },
+  );
+});
+
 export default auth;

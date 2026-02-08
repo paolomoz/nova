@@ -50,6 +50,7 @@ assets.post('/:projectId/upload', async (c) => {
   const path = formData.get('path') as string || '/media';
 
   if (!file) return c.json({ error: 'file required' }, 400);
+  if (!c.env.ASSETS) return c.json({ error: 'R2 storage not configured' }, 503);
 
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const r2Key = `${projectId}${path}/${file.name}`;
@@ -104,6 +105,7 @@ assets.get('/:projectId/file', async (c) => {
   if (!path) return c.json({ error: 'path required' }, 400);
 
   const r2Key = `${projectId}${path}`;
+  if (!c.env.ASSETS) return c.json({ error: 'R2 storage not configured' }, 503);
   const object = await c.env.ASSETS.get(r2Key);
 
   if (!object) return c.json({ error: 'Asset not found' }, 404);
@@ -148,7 +150,7 @@ assets.delete('/:projectId/:assetId', async (c) => {
     'SELECT r2_key FROM assets WHERE id = ? AND project_id = ?',
   ).bind(assetId, projectId).first<{ r2_key: string }>();
 
-  if (asset?.r2_key) {
+  if (asset?.r2_key && c.env.ASSETS) {
     await c.env.ASSETS.delete(asset.r2_key);
   }
 

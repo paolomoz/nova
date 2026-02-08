@@ -23,6 +23,7 @@ interface AuthState {
   error: string | null;
   onboarded: boolean;
   checkAuth: () => Promise<void>;
+  devLogin: () => Promise<void>;
   loginWithGitHub: (code: string) => Promise<void>;
   loginWithIMS: (code: string) => Promise<void>;
   switchOrg: (orgId: string) => Promise<void>;
@@ -47,6 +48,18 @@ export const useAuth = create<AuthState>((set, get) => ({
       get().loadOrgs();
     } catch {
       set({ user: null, org: null, loading: false });
+    }
+  },
+
+  devLogin: async () => {
+    try {
+      set({ loading: true, error: null });
+      await api.devLogin();
+      const data = await api.getMe();
+      set({ user: data.user, org: data.org, loading: false });
+      get().loadOrgs();
+    } catch (err) {
+      set({ loading: false, error: (err as Error).message });
     }
   },
 

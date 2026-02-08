@@ -12,7 +12,7 @@ export interface OrchestratorEnv {
   VOYAGE_API_KEY: string;
   VOYAGE_MODEL: string;
   DB: D1Database;
-  VECTORIZE: VectorizeIndex;
+  VECTORIZE?: VectorizeIndex;
   EMBED_QUEUE?: Queue;
 }
 

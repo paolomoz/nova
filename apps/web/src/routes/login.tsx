@@ -11,7 +11,7 @@ const IMS_CLIENT_ID = import.meta.env.VITE_IMS_CLIENT_ID || '';
 export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, loginWithGitHub, loginWithIMS, loading, error } = useAuth();
+  const { user, devLogin, loginWithGitHub, loginWithIMS, loading, error } = useAuth();
 
   // Handle OAuth callback
   const code = searchParams.get('code');
@@ -122,6 +122,23 @@ export function LoginPage() {
             </Button>
           )}
         </div>
+
+        {import.meta.env.DEV && (
+          <Button
+            onClick={devLogin}
+            variant="ghost"
+            size="sm"
+            className="mx-auto"
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Signing in...
+              </>
+            ) : 'Dev Login'}
+          </Button>
+        )}
 
         <p className="text-xs text-muted-foreground">
           Built on AEM Edge Delivery Services

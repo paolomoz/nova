@@ -49,7 +49,12 @@ export class DAAdminClient {
       throw new Error(`DA list failed: ${response.status}`);
     }
     const data = (await response.json()) as DAListEntry[];
-    return data;
+    // Strip the org/repo prefix from paths so callers get repo-relative paths
+    const prefix = this.basePath();
+    return data.map((entry) => ({
+      ...entry,
+      path: entry.path.startsWith(prefix) ? entry.path.slice(prefix.length) || '/' : entry.path,
+    }));
   }
 
   /** Get page source HTML */

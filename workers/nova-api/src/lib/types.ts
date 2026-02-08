@@ -6,10 +6,10 @@ export interface Env {
   // KV
   SESSIONS: KVNamespace;
   DA_TOKEN_CACHE: KVNamespace;
-  // Vectorize
-  VECTORIZE: VectorizeIndex;
-  // Queues
-  EMBED_QUEUE: Queue;
+  // Vectorize (optional — not available in local dev)
+  VECTORIZE?: VectorizeIndex;
+  // Queues (optional — not available in local dev)
+  EMBED_QUEUE?: Queue;
   // Secrets
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
@@ -20,11 +20,12 @@ export interface Env {
   DA_CLIENT_SECRET: string;
   DA_SERVICE_TOKEN: string;
   GITHUB_TOKEN: string;
-  ASSETS: R2Bucket;
+  ASSETS?: R2Bucket;
   // Vars
   IMS_CLIENT_ID: string;
   IMS_CLIENT_SECRET: string;
   IMS_REDIRECT_URI: string;
+  DEV_MODE?: string;
   CORS_ORIGIN: string;
   DA_ADMIN_HOST?: string;
   VOYAGE_MODEL: string;

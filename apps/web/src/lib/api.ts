@@ -22,7 +22,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 401) {
-      window.location.href = '/login';
       throw new ApiError(401, 'Unauthorized');
     }
     const body = await response.text();
@@ -185,6 +184,7 @@ export const api = {
     request<{ orgs: Array<{ id: string; name: string; slug: string; role: string }> }>('/auth/orgs'),
   updatePreferences: (preferences: Record<string, unknown>) =>
     request('/auth/preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
+  devLogin: () => request('/auth/dev-login', { method: 'POST' }),
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // Org
@@ -232,6 +232,10 @@ export const api = {
     request<{
       actions: Array<{ id: string; action_type: string; description: string; created_at: string }>;
     }>(`/ai/${projectId}/history?limit=${limit}`),
+
+  // WYSIWYG
+  getWysiwygUrl: (projectId: string, path: string) =>
+    `/api/content/${projectId}/wysiwyg?path=${encodeURIComponent(path)}`,
 
   // Preview & Publish
   previewPage: (projectId: string, path: string) =>

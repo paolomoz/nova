@@ -3,7 +3,7 @@ import type { DAAdminClient } from '@nova/da-client';
 export interface ToolContext {
   daClient: DAAdminClient;
   db: D1Database;
-  vectorize: VectorizeIndex;
+  vectorize?: VectorizeIndex;
   userId: string;
   projectId: string;
   voyageApiKey: string;
@@ -437,6 +437,7 @@ export async function executeTool(
       if (!queryVector) return JSON.stringify({ error: 'No embedding returned', results: [] });
 
       // Query Vectorize
+      if (!ctx.vectorize) return JSON.stringify({ error: 'Vectorize not configured', results: [] });
       const vectorResults = await ctx.vectorize.query(queryVector, {
         topK: limit,
         filter: { projectId },

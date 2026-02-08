@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -24,19 +24,32 @@ import { BlockMetadataEditor } from '@/components/editor/block-metadata-editor';
 import { AIBlockActions } from '@/components/editor/ai-block-actions';
 import { SlashCommand } from '@/components/editor/extensions/slash-command';
 import { SlashCommandMenu } from '@/components/editor/ai-menu';
+import { WysiwygEditor, type WysiwygEditorHandle } from '@/components/editor/wysiwyg-editor';
 import {
   Save, Eye, Globe, Loader2, ChevronLeft,
   PanelLeftClose, PanelLeftOpen, PanelRightClose,
-  LayoutGrid, FileText, Image, Settings2,
+  LayoutGrid, FileText, Image, Settings2, Code, Monitor,
 } from 'lucide-react';
 
+type EditorMode = 'visual' | 'source';
 type LeftPanel = 'tree' | 'blocks';
 type RightPanel = 'preview' | 'assets' | 'metadata';
 
 export function EditorPage() {
   const [searchParams] = useSearchParams();
-  const projectId = useProject((s) => s.activeProjectId);
+  const { activeProjectId: projectId, loadProjects, loading: projectsLoading } = useProject();
   const pagePath = searchParams.get('path') || '';
+
+  // Ensure projects are loaded (handles direct navigation to editor)
+  useEffect(() => {
+    if (!projectId) {
+      loadProjects();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Editor mode
+  const [editorMode, setEditorMode] = useState<EditorMode>('visual');
+  const wysiwygRef = useRef<WysiwygEditorHandle>(null);
 
   // Editor state
   const [loading, setLoading] = useState(true);
@@ -44,11 +57,13 @@ export function EditorPage() {
   const [dirty, setDirty] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  // Key to force iframe reload when switching back to visual after save
+  const [wysiwygKey, setWysiwygKey] = useState(0);
 
   // Panel state
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [leftPanel, setLeftPanel] = useState<LeftPanel>('tree');
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>('blocks');
   const [rightPanel, setRightPanel] = useState<RightPanel>('preview');
   const [metadataBlock, setMetadataBlock] = useState<string | null>(null);
 
@@ -92,7 +107,7 @@ export function EditorPage() {
     },
   });
 
-  // Load page content
+  // Load page content (for Source mode / TipTap)
   useEffect(() => {
     if (!projectId || !pagePath) {
       setLoading(false);
@@ -111,12 +126,27 @@ export function EditorPage() {
     });
   }, [projectId, pagePath, editor]);
 
-  // Save
+  // Auto-trigger preview warmup on page load (so Visual mode has content)
+  useEffect(() => {
+    if (!projectId || !pagePath) return;
+    api.previewPage(projectId, pagePath).catch(() => {
+      // Non-fatal: preview warmup failure is fine
+    });
+  }, [projectId, pagePath]);
+
+  // Save — works for both modes
   const handleSave = useCallback(async () => {
-    if (!editor || !projectId || !pagePath) return;
+    if (!projectId || !pagePath) return;
     setSaving(true);
     try {
-      const html = editor.getHTML();
+      let html: string;
+      if (editorMode === 'visual' && wysiwygRef.current) {
+        html = await wysiwygRef.current.getContent();
+      } else if (editor) {
+        html = editor.getHTML();
+      } else {
+        return;
+      }
       await api.createPage(projectId, pagePath, html);
       setDirty(false);
       setLastSaved(new Date());
@@ -125,7 +155,7 @@ export function EditorPage() {
     } finally {
       setSaving(false);
     }
-  }, [editor, projectId, pagePath]);
+  }, [editor, editorMode, projectId, pagePath]);
 
   // Keyboard shortcut: Cmd+S to save
   useEffect(() => {
@@ -138,6 +168,36 @@ export function EditorPage() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [handleSave]);
+
+  // Mode switch
+  const handleModeSwitch = useCallback(async (newMode: EditorMode) => {
+    if (newMode === editorMode) return;
+
+    // Save first if dirty
+    if (dirty) {
+      await handleSave();
+    }
+
+    if (newMode === 'source' && projectId && pagePath) {
+      // Reload source content into TipTap
+      try {
+        const data = await api.getPageSource(projectId, pagePath);
+        if (editor) {
+          editor.commands.setContent(data.content);
+        }
+      } catch {
+        // Keep existing content
+      }
+    }
+
+    if (newMode === 'visual') {
+      // Force iframe reload to pick up any source changes
+      setWysiwygKey((k) => k + 1);
+    }
+
+    setEditorMode(newMode);
+    setDirty(false);
+  }, [editorMode, dirty, handleSave, projectId, pagePath, editor]);
 
   // Preview
   const handlePreview = async () => {
@@ -192,6 +252,15 @@ export function EditorPage() {
     [editor, slashCommand],
   );
 
+  // Loading projects
+  if (projectsLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   // Empty state — no page selected
   if (!pagePath) {
     return (
@@ -230,10 +299,22 @@ export function EditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {projectId && <GenerativeMarker editor={editor} />}
-          {projectId && <AIBlockActions editor={editor} projectId={projectId} />}
+          {/* Visual / Source toggle */}
+          <Tabs value={editorMode} onValueChange={(v) => handleModeSwitch(v as EditorMode)}>
+            <TabsList className="h-8">
+              <TabsTrigger value="visual" className="h-7 text-xs px-2.5 gap-1">
+                <Monitor className="h-3 w-3" /> Visual
+              </TabsTrigger>
+              <TabsTrigger value="source" className="h-7 text-xs px-2.5 gap-1">
+                <Code className="h-3 w-3" /> Source
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           <Separator orientation="vertical" className="h-6" />
+
+          {editorMode === 'source' && projectId && <GenerativeMarker editor={editor} />}
+          {editorMode === 'source' && projectId && <AIBlockActions editor={editor} projectId={projectId} />}
 
           <Button
             variant="outline"
@@ -257,15 +338,17 @@ export function EditorPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
-        {leftPanelOpen && projectId && (
+        {/* Left Sidebar — only in Source mode (Outline needs TipTap) or Blocks tab */}
+        {leftPanelOpen && projectId && (editorMode === 'source' || leftPanel === 'blocks') && (
           <div className="flex w-64 shrink-0 flex-col border-r">
             <div className="flex items-center justify-between border-b px-2 py-1">
               <Tabs value={leftPanel} onValueChange={(v) => setLeftPanel(v as LeftPanel)}>
                 <TabsList className="h-8">
-                  <TabsTrigger value="tree" className="h-7 text-xs px-2">
-                    <FileText className="mr-1 h-3 w-3" /> Outline
-                  </TabsTrigger>
+                  {editorMode === 'source' && (
+                    <TabsTrigger value="tree" className="h-7 text-xs px-2">
+                      <FileText className="mr-1 h-3 w-3" /> Outline
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="blocks" className="h-7 text-xs px-2">
                     <LayoutGrid className="mr-1 h-3 w-3" /> Blocks
                   </TabsTrigger>
@@ -277,7 +360,7 @@ export function EditorPage() {
             </div>
 
             <div className="flex-1 overflow-hidden">
-              {leftPanel === 'tree' && <ContentTree editor={editor} />}
+              {leftPanel === 'tree' && editorMode === 'source' && <ContentTree editor={editor} />}
               {leftPanel === 'blocks' && (
                 <BlockBrowser projectId={projectId} onInsertBlock={handleInsertBlock} />
               )}
@@ -299,19 +382,34 @@ export function EditorPage() {
 
         {/* Main Editor Area */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          <EditorToolbar
-            editor={editor}
-            onInsertBlock={() => {
-              setLeftPanel('blocks');
-              setLeftPanelOpen(true);
-            }}
-            onAIAction={() => {
-              editor?.chain().focus().insertContent('/').run();
-            }}
-          />
+          {editorMode === 'source' && (
+            <EditorToolbar
+              editor={editor}
+              onInsertBlock={() => {
+                setLeftPanel('blocks');
+                setLeftPanelOpen(true);
+              }}
+              onAIAction={() => {
+                editor?.chain().focus().insertContent('/').run();
+              }}
+            />
+          )}
 
           <div className="flex-1 overflow-auto relative">
-            {loading ? (
+            {editorMode === 'visual' && projectId ? (
+              <WysiwygEditor
+                key={wysiwygKey}
+                ref={wysiwygRef}
+                projectId={projectId}
+                pagePath={pagePath}
+                onDirty={() => setDirty(true)}
+                onBlockSelected={(blockName) => {
+                  setMetadataBlock(blockName);
+                  setRightPanel('metadata');
+                  setRightPanelOpen(true);
+                }}
+              />
+            ) : loading ? (
               <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
