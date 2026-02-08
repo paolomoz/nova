@@ -1,9 +1,8 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson, ChevronsUpDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const navItems = [
   { path: '/sites', label: 'Sites', icon: Globe },
@@ -22,55 +21,72 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { user, org, orgs, logout, switchOrg } = useAuth();
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
+  const orgMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close org menu on outside click
+  useEffect(() => {
+    if (!orgMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (orgMenuRef.current && !orgMenuRef.current.contains(e.target as Node)) {
+        setOrgMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [orgMenuOpen]);
 
   return (
     <div className="flex h-screen">
-      {/* Sidebar */}
-      <aside className="flex w-16 flex-col items-center border-r bg-muted/40 py-4">
-        <div className="mb-8 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
+      {/* Sidebar — Spectrum 2 nav rail */}
+      <aside className="flex w-16 flex-col items-center border-r border-border bg-background py-4">
+        {/* Logo */}
+        <div className="mb-6 flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-extrabold">
           N
         </div>
 
-        <nav className="flex flex-1 flex-col items-center gap-2">
+        {/* Navigation */}
+        <nav className="flex flex-1 flex-col items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = location.pathname.startsWith(item.path);
             return (
-              <Link key={item.path} to={item.path}>
-                <Button
-                  variant={active ? 'secondary' : 'ghost'}
-                  size="icon"
-                  className={cn('h-10 w-10', active && 'bg-secondary')}
-                  title={item.label}
-                >
-                  <Icon className="h-5 w-5" />
-                </Button>
+              <Link
+                key={item.path}
+                to={item.path}
+                title={item.label}
+                aria-label={item.label}
+                className={cn(
+                  'flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground',
+                  active && 'bg-accent text-foreground',
+                )}
+              >
+                <Icon className="h-5 w-5" />
               </Link>
             );
           })}
         </nav>
 
+        {/* Bottom section */}
         <div className="mt-auto flex flex-col items-center gap-2">
           {/* Org switcher */}
           {orgs.length > 1 && (
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
+            <div className="relative" ref={orgMenuRef}>
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
                 title={org?.name || 'Switch org'}
+                aria-label="Switch organization"
                 onClick={() => setOrgMenuOpen(!orgMenuOpen)}
               >
                 <ChevronsUpDown className="h-4 w-4" />
-              </Button>
+              </button>
               {orgMenuOpen && (
-                <div className="absolute bottom-10 left-0 z-50 w-48 rounded-md border bg-popover p-1 shadow-md">
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Organizations</div>
+                <div className="absolute bottom-10 left-0 z-50 w-48 rounded-xl border bg-popover p-1 shadow-elevated animate-fade-in">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Organizations</div>
                   {orgs.map((o) => (
                     <button
                       key={o.id}
                       className={cn(
-                        'flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent',
+                        'flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors duration-100 hover:bg-accent',
                         o.id === org?.id && 'bg-accent font-medium',
                       )}
                       onClick={() => {
@@ -85,17 +101,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </div>
           )}
-          {user?.avatarUrl && (
-            <img src={user.avatarUrl} alt={user.name} className="h-8 w-8 rounded-full" />
-          )}
-          <Button variant="ghost" size="icon" onClick={logout} title="Logout">
+
+          {/* Avatar */}
+          {user?.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt={user.name}
+              className="h-8 w-8 rounded-full ring-2 ring-transparent hover:ring-border transition-all duration-150"
+            />
+          ) : user ? (
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+          ) : null}
+
+          {/* Logout */}
+          <button
+            onClick={logout}
+            title="Logout"
+            aria-label="Logout"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
+          >
             <LogOut className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">{children}</main>
+      <main className="flex-1 overflow-auto bg-background">{children}</main>
     </div>
   );
 }
