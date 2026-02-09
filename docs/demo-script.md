@@ -36,7 +36,7 @@
 | Responsive preview toggle | NOT IMPLEMENTED | No device toggle in editor chrome |
 | A/B test configuration | NOT IMPLEMENTED | No experimentation block or Target integration |
 | Localization/culturalization | PARTIAL | AI can create pages at locale paths; no dedicated locale UI |
-| Auto-navigate to created page | NOT IMPLEMENTED | After AI creates a page, user must manually navigate |
+| Auto-navigate to created page | WORKING | Insight card with "Open in Editor" button after AI creates a page via tool-use |
 
 ---
 
@@ -56,7 +56,7 @@
 
 The AI creates a new page at `/airpulse-pro` with hero, cards, and CTA blocks.
 
-Page saves to DA. User navigates to the page in the Visual Editor to see it rendered.
+Page saves to DA. An insight card appears: "Page created at /airpulse-pro. Open it in the editor?" User clicks **Open in Editor** and navigates directly to the Visual Editor.
 
 **Insight card appears:**
 

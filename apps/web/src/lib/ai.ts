@@ -57,6 +57,7 @@ interface AIState {
   completedSteps: CompletedStep[];
   validationResult: ValidationResult | null;
   abortController: AbortController | null;
+  pendingNavigation: string | null;
   execute: (projectId: string, prompt: string) => Promise<void>;
   executeStreaming: (projectId: string, prompt: string) => void;
   cancelExecution: () => void;
@@ -64,6 +65,7 @@ interface AIState {
   addInsight: (insight: Omit<InsightCard, 'id'>) => void;
   dismissInsight: (id: string) => void;
   handleInsightAction: (insightId: string, action: string) => void;
+  clearNavigation: () => void;
 }
 
 let insightCounter = 0;
@@ -80,6 +82,7 @@ export const useAI = create<AIState>((set, get) => ({
   completedSteps: [],
   validationResult: null,
   abortController: null,
+  pendingNavigation: null,
 
   execute: async (projectId: string, prompt: string) => {
     set({ loading: true, response: null });
@@ -120,8 +123,17 @@ export const useAI = create<AIState>((set, get) => ({
   },
 
   handleInsightAction: (insightId: string, action: string) => {
-    // For now, dismiss the insight after any action
+    // Handle navigation actions
+    if (action.startsWith('navigate:')) {
+      const path = action.slice('navigate:'.length);
+      set({ pendingNavigation: path });
+    }
+    // Dismiss the insight after any action
     get().dismissInsight(insightId);
+  },
+
+  clearNavigation: () => {
+    set({ pendingNavigation: null });
   },
 
   executeStreaming: (projectId: string, prompt: string) => {
@@ -147,6 +159,8 @@ export const useAI = create<AIState>((set, get) => ({
       validationResult: null,
     }));
 
+    let createdPagePath: string | null = null;
+
     const controller = api.streamAI(projectId, prompt, (event: SSEStreamEvent) => {
       switch (event.event) {
         case 'mode':
@@ -165,11 +179,21 @@ export const useAI = create<AIState>((set, get) => ({
           set({ currentStep: `${stepId}: ${description}` });
           break;
         }
-        case 'tool_call':
-          // Tool is being called — could show tool name
+        case 'tool_call': {
+          const toolData = event.data as { toolName: string; input?: Record<string, unknown> };
+          if (toolData.toolName === 'create_page' && toolData.input?.path) {
+            // Track created page path for auto-navigation
+            createdPagePath = toolData.input.path as string;
+          }
           break;
+        }
         case 'step_complete': {
           const step = event.data as unknown as CompletedStep;
+          // Detect page creation from step result
+          if (!createdPagePath && step.result) {
+            const match = step.result.match(/Page created at (.+)/);
+            if (match) createdPagePath = match[1].trim();
+          }
           set((state) => ({
             completedSteps: [...state.completedSteps, step],
             currentStep: null,
@@ -197,7 +221,20 @@ export const useAI = create<AIState>((set, get) => ({
           break;
         }
         case 'done': {
-          const { response } = event.data as { response: string };
+          const doneData = event.data as {
+            response: string;
+            toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: string }>;
+          };
+          const { response } = doneData;
+          // Check toolCalls from done event for create_page (covers single-mode)
+          if (!createdPagePath && doneData.toolCalls) {
+            for (const tc of doneData.toolCalls) {
+              if (tc.name === 'create_page' && tc.input?.path) {
+                createdPagePath = tc.input.path as string;
+                break;
+              }
+            }
+          }
           const assistantMsg: ChatMessage = {
             id: `msg-${Date.now()}`,
             role: 'assistant',
@@ -208,6 +245,17 @@ export const useAI = create<AIState>((set, get) => ({
             streaming: false, loading: false, response, currentStep: null, abortController: null,
             messages: [...state.messages, assistantMsg],
           }));
+          // Auto-navigate insight for created pages
+          if (createdPagePath) {
+            get().addInsight({
+              message: `Page created at ${createdPagePath}. Open it in the editor?`,
+              type: 'info',
+              actions: [
+                { label: 'Open in Editor', action: `navigate:/editor?path=${encodeURIComponent(createdPagePath)}` },
+                { label: 'Stay here', action: 'dismiss' },
+              ],
+            });
+          }
           // Refresh history
           api.getActionHistory(projectId).then((history) => {
             set({

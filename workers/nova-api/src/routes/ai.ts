@@ -80,7 +80,7 @@ ai.post('/:projectId/stream', async (c) => {
         write,
       );
 
-      write({ event: 'done', data: { response: result.response, mode: result.mode, plan: result.plan } });
+      write({ event: 'done', data: { response: result.response, mode: result.mode, plan: result.plan, toolCalls: result.toolCalls } });
 
       // Log action + accumulate context (non-blocking)
       await c.env.DB.prepare(

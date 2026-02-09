@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Sparkles, X, Maximize2, ArrowUp, Loader2, Square,
   MessageSquare, Compass, Settings2, Check, AlertTriangle, User,
@@ -15,10 +16,12 @@ import { ConversationList } from './conversation-list';
 import { ContextPicker, type ContextScope } from './context-picker';
 
 export function AIRail() {
+  const navigate = useNavigate();
   const { mode, railTab, setRailTab, close, toggleExpand, railPush, toggleRailPush } = useAILayout();
   const {
     loading, streaming, response, messages, insights, currentPlan, currentStep, completedSteps,
     validationResult, executeStreaming, cancelExecution, dismissInsight, handleInsightAction,
+    pendingNavigation, clearNavigation,
   } = useAI();
   const projectId = useProject((s) => s.activeProjectId);
 
@@ -36,6 +39,14 @@ export function AIRail() {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen]);
+
+  // Watch for pending navigation from insight card actions
+  useEffect(() => {
+    if (pendingNavigation) {
+      navigate(pendingNavigation);
+      clearNavigation();
+    }
+  }, [pendingNavigation, navigate, clearNavigation]);
 
   // Expose addInsight for demo/testing via window
   const { addInsight } = useAI();
