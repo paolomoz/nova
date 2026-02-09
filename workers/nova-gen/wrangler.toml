@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+# --- Shared bindings ---
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
+
+# --- Development (default) ---
+
 [vars]
 MODEL_PRESET = "production"
 DEBUG = "false"
@@ -16,10 +24,6 @@ id = "sessions-kv"
 binding = "DA_TOKEN_CACHE"
 id = "da-token-cache-kv"
 
-[[vectorize]]
-binding = "VECTORIZE"
-index_name = "nova-content"
-
 [[ d1_databases ]]
 binding = "DB"
 database_name = "nova-db"
@@ -28,3 +32,30 @@ database_id = "local-nova-db"
 [dev]
 port = 8788
 local_protocol = "http"
+
+# --- Production ---
+
+[env.production]
+name = "nova-gen"
+
+[env.production.vars]
+MODEL_PRESET = "production"
+DEBUG = "false"
+VOYAGE_MODEL = "voyage-3"
+
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "4148ce00535d49a5a812942c2f342ebd"
+
+[[env.production.kv_namespaces]]
+binding = "DA_TOKEN_CACHE"
+id = "098a63f3fcd648a094d54f71367c48b5"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "nova-db"
+database_id = "fd2929b9-536d-4e97-83cd-f635e602b467"
+
+[[env.production.vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"

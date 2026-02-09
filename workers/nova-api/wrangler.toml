@@ -3,6 +3,22 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+# --- Shared bindings (used by both dev and production) ---
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
+
+[[queues.producers]]
+queue = "nova-embed-queue"
+binding = "EMBED_QUEUE"
+
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "nova-assets"
+
+# --- Development (default) ---
+
 [vars]
 GITHUB_CLIENT_ID = "Ov23lixzgGtiLVFd55kT"
 CORS_ORIGIN = "http://localhost:5173"
@@ -22,18 +38,42 @@ id = "sessions-kv"
 binding = "DA_TOKEN_CACHE"
 id = "da-token-cache-kv"
 
-[[vectorize]]
-binding = "VECTORIZE"
-index_name = "nova-content"
-
-[[queues.producers]]
-queue = "nova-embed-queue"
-binding = "EMBED_QUEUE"
-
-[[r2_buckets]]
-binding = "ASSETS_BUCKET"
-bucket_name = "nova-assets"
-
 [dev]
 port = 8787
 local_protocol = "http"
+
+# --- Production ---
+
+[env.production]
+name = "nova-api"
+
+[env.production.vars]
+GITHUB_CLIENT_ID = "Ov23lixzgGtiLVFd55kT"
+CORS_ORIGIN = "https://nova-cms-852.pages.dev"
+DEV_MODE = "false"
+VOYAGE_MODEL = "voyage-3"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "nova-db"
+database_id = "fd2929b9-536d-4e97-83cd-f635e602b467"
+
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "4148ce00535d49a5a812942c2f342ebd"
+
+[[env.production.kv_namespaces]]
+binding = "DA_TOKEN_CACHE"
+id = "098a63f3fcd648a094d54f71367c48b5"
+
+[[env.production.vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
+
+[[env.production.queues.producers]]
+queue = "nova-embed-queue"
+binding = "EMBED_QUEUE"
+
+[[env.production.r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "nova-assets"
