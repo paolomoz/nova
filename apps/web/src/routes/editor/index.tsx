@@ -208,9 +208,25 @@ export function EditorPage() {
   // Auto-trigger preview warmup on page load (so Visual mode has content)
   useEffect(() => {
     if (!projectId || !pagePath) return;
-    api.previewPage(projectId, pagePath).catch(() => {
-      // Non-fatal: preview warmup failure is fine
+    let cancelled = false;
+    api.previewPage(projectId, pagePath).then(() => {
+      // Preview succeeded — reload WYSIWYG iframe to pick up content
+      if (!cancelled && editorMode === 'visual') {
+        setWysiwygKey((k) => k + 1);
+      }
+    }).catch(() => {
+      // First attempt failed — retry after a short delay
+      if (cancelled) return;
+      setTimeout(() => {
+        if (cancelled) return;
+        api.previewPage(projectId, pagePath).then(() => {
+          if (!cancelled && editorMode === 'visual') {
+            setWysiwygKey((k) => k + 1);
+          }
+        }).catch(() => {});
+      }, 3000);
     });
+    return () => { cancelled = true; };
   }, [projectId, pagePath]);
 
   // Save — works for both modes
