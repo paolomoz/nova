@@ -359,6 +359,45 @@ function buildBridgeScript(sourceHtml: string): string {
 }
 
 /**
+ * Build a self-rendered WYSIWYG page from DA source HTML + AEM site-level CSS/JS.
+ *
+ * Used as an instant fallback when AEM Edge Delivery hasn't pre-rendered the page.
+ * AEM's client-side JS (`aem.js`, `scripts.js`) will decorate the raw source HTML
+ * in the browser — no server-side rendering needed.
+ *
+ * @param sourceHtml - The DA source HTML (pre-decoration)
+ * @param proxyBasePath - Same-origin proxy path (e.g. /api/content/proj-x/aem-proxy)
+ */
+export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string): string {
+  // Rewrite root-relative URLs in the source HTML to go through the proxy
+  const rewrittenSource = rewriteRootRelativeUrls(sourceHtml, proxyBasePath);
+
+  const fetchInterceptor = buildFetchInterceptor(proxyBasePath);
+  const bridgeScript = buildBridgeScript(sourceHtml);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <base href="${proxyBasePath}/">
+  <script src="${proxyBasePath}/scripts/aem.js" type="module"></script>
+  <script src="${proxyBasePath}/scripts/scripts.js" type="module"></script>
+  <link rel="stylesheet" href="${proxyBasePath}/styles/styles.css">
+  <style>
+    body { display: block !important; visibility: visible !important; }
+    header, footer { display: block; }
+  </style>
+  ${fetchInterceptor}
+</head>
+<body class="appear">
+  <header></header>
+  <main>${rewrittenSource}</main>
+  <footer></footer>
+  ${bridgeScript}
+</body>
+</html>`;
+}
+
+/**
  * Build fallback HTML when AEM preview is not available.
  */
 export function buildFallbackPage(message: string): string {

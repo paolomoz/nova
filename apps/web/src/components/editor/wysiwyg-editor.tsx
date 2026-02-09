@@ -75,10 +75,10 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
       if (!loading) return;
       const timer = setTimeout(() => {
         if (loading) {
-          setError('Preview is taking longer than expected. The page may need to be previewed first.');
+          setError('Preview is taking longer than expected. Try refreshing the page.');
           setLoading(false);
         }
-      }, 15000);
+      }, 10000);
       return () => clearTimeout(timer);
     }, [loading]);
 

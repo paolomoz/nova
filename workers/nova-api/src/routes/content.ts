@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, SessionData } from '../lib/types.js';
 import { getDAClientForProject } from '../services/da-client.js';
 import { getBlockLibrary } from '../lib/blocks.js';
-import { buildWysiwygPage, buildFallbackPage } from '../lib/wysiwyg-bridge.js';
+import { buildWysiwygPage, buildSelfRenderedPage, buildFallbackPage } from '../lib/wysiwyg-bridge.js';
 
 const content = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
@@ -573,83 +573,50 @@ content.get('/:projectId/wysiwyg', async (c) => {
   let aemPath = path.replace(/\.html$/, '');
   if (aemPath.endsWith('/index')) aemPath = aemPath.slice(0, -5);
   const aemPageUrl = `${aemBaseUrl}${aemPath}`;
-
-  // Helper: fetch AEM page with a short timeout
-  const fetchAem = async (url: string, timeoutMs = 10000): Promise<Response> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  // Fetch rendered HTML from AEM
-  let renderedHtml: string;
-  try {
-    let aemResponse = await fetchAem(aemPageUrl);
-
-    // Self-healing: if AEM returns non-200, auto-trigger preview warmup and poll
-    if (!aemResponse.ok) {
-      const warmupUrl = `https://admin.hlx.page/preview/${org}/${site}/main${aemPath}`;
-      try {
-        const warmupCtrl = new AbortController();
-        const warmupTimer = setTimeout(() => warmupCtrl.abort(), 8000);
-        await fetch(warmupUrl, { method: 'POST', signal: warmupCtrl.signal }).then((r) => {
-          clearTimeout(warmupTimer);
-          // Consume body to avoid connection leak
-          r.body?.cancel();
-        });
-      } catch {
-        // Warmup request failed — continue to poll anyway
-      }
-
-      // Poll AEM with backoff: 1s, 2s, 3s (~6s total wait)
-      const delays = [1000, 2000, 3000];
-      for (const delay of delays) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        try {
-          aemResponse = await fetchAem(aemPageUrl, 5000);
-          if (aemResponse.ok) break;
-        } catch {
-          // Poll attempt failed — try next
-        }
-      }
-
-      if (!aemResponse.ok) {
-        return c.html(
-          buildFallbackPage(`AEM returned ${aemResponse.status}. The page preview is warming up — try refreshing in a few seconds.`),
-          200,
-        );
-      }
-    }
-
-    renderedHtml = await aemResponse.text();
-  } catch {
-    return c.html(
-      buildFallbackPage('Could not reach AEM Edge Delivery. Click Preview to warm the cache, then try again.'),
-      200,
-    );
-  }
-
-  // Fetch source HTML from DA
-  let sourceHtml = '';
-  try {
-    const client = await getDAClientForProject(c.env, projectId);
-    const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
-    const source = await client.getSource(sourcePath);
-    sourceHtml = source.content || '';
-  } catch {
-    // If source fetch fails, we still show the WYSIWYG but editing won't round-trip
-    sourceHtml = '';
-  }
-
-  // Build the proxied page with editing bridge.
-  // All URLs are rewritten to go through the same-origin proxy to avoid CORS.
   const proxyBasePath = `/api/content/${projectId}/aem-proxy`;
-  const html = buildWysiwygPage(renderedHtml, sourceHtml, proxyBasePath, aemBaseUrl);
-  return c.html(html);
+
+  // Fetch DA source + attempt AEM in parallel
+  // DA source always works; AEM has a 3s timeout, no retry
+  const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
+
+  const [aemResult, daResult] = await Promise.allSettled([
+    // AEM fetch with 3s timeout — single attempt, no warmup, no retry
+    (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const resp = await fetch(aemPageUrl, { signal: controller.signal });
+        if (!resp.ok) throw new Error(`AEM ${resp.status}`);
+        return await resp.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    })(),
+    // DA source fetch — reliable, always available
+    (async () => {
+      const client = await getDAClientForProject(c.env, projectId);
+      const source = await client.getSource(sourcePath);
+      return source.content || '';
+    })(),
+  ]);
+
+  const aemHtml = aemResult.status === 'fulfilled' ? aemResult.value : null;
+  const sourceHtml = daResult.status === 'fulfilled' ? daResult.value : null;
+
+  // Best path: AEM rendered page available
+  if (aemHtml) {
+    const html = buildWysiwygPage(aemHtml, sourceHtml || '', proxyBasePath, aemBaseUrl);
+    return c.html(html);
+  }
+
+  // Fallback: self-render from DA source + AEM site-level CSS/JS
+  if (sourceHtml) {
+    const html = buildSelfRenderedPage(sourceHtml, proxyBasePath);
+    return c.html(html);
+  }
+
+  // Edge case: neither available
+  return c.html(buildFallbackPage('Could not load page content. Try refreshing.'), 200);
 });
 
 /** GET /api/content/:projectId/aem-proxy/* — reverse proxy for AEM static assets */

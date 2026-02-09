@@ -222,10 +222,10 @@ export function EditorPage() {
       setDirty(false);
       setLastSaved(new Date());
 
-      // Trigger preview warmup so the WYSIWYG iframe picks up saved changes
-      api.previewPage(projectId, pagePath).then(() => {
-        setWysiwygKey((k) => k + 1);
-      }).catch(() => {});
+      // Reload iframe immediately — self-render fallback ensures content is visible
+      // even if AEM hasn't warmed yet. Background warmup primes AEM for next time.
+      setWysiwygKey((k) => k + 1);
+      api.previewPage(projectId, pagePath).catch(() => {});
     } catch {
       // Handle error
     } finally {
