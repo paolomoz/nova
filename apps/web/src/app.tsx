@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { AppShell } from '@/components/shell/app-shell';
 import { CommandBar } from '@/components/command-bar/command-bar';
+import { AIContextual } from '@/components/ai/ai-contextual';
+import { AIFullScreen } from '@/components/ai/ai-full-screen';
 import { LoginPage } from '@/routes/login';
 import { SitesPage } from '@/routes/sites/index';
 import { EditorPage } from '@/routes/editor/index';
@@ -47,6 +49,8 @@ function AuthenticatedRoutes() {
   return (
     <AppShell>
       <CommandBar />
+      <AIContextual />
+      <AIFullScreen />
       <Routes>
         <Route path="/sites/*" element={<SitesPage />} />
         <Route path="/editor/*" element={<EditorPage />} />

@@ -187,7 +187,12 @@ export function SitesPage() {
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <h2 className="text-xl font-semibold">No projects yet</h2>
         <p className="text-muted-foreground">Create a project to get started.</p>
-        <Button><Plus className="mr-2 h-4 w-4" />Create Project</Button>
+        <Button onClick={async () => {
+          try {
+            await api.createProject({ name: 'My Project', slug: 'my-project', daOrg: 'my-org', daRepo: 'my-repo' });
+            loadProjects();
+          } catch { /* non-fatal */ }
+        }}><Plus className="mr-2 h-4 w-4" />Create Project</Button>
       </div>
     );
   }

@@ -8,6 +8,7 @@ interface SlashCommandMenuProps {
   query: string;
   onSelect: (html: string) => void;
   onClose: () => void;
+  onAICommand?: (prompt: string) => void;
 }
 
 interface CommandItem {
@@ -46,7 +47,7 @@ const commands: CommandItem[] = [
   { id: 'ai-summarize', label: 'AI Summarize', description: 'Create a summary', icon: FileText, group: 'AI', html: '' },
 ];
 
-export function SlashCommandMenu({ query, onSelect, onClose }: SlashCommandMenuProps) {
+export function SlashCommandMenu({ query, onSelect, onClose, onAICommand }: SlashCommandMenuProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -76,8 +77,9 @@ export function SlashCommandMenu({ query, onSelect, onClose }: SlashCommandMenuP
         if (item) {
           if (item.html) {
             onSelect(item.html);
+          } else if (onAICommand) {
+            onAICommand(item.description);
           } else {
-            // AI commands — insert a placeholder that will be replaced
             onSelect(`<p><em>${item.label}: generating...</em></p>`);
           }
         }
@@ -127,6 +129,8 @@ export function SlashCommandMenu({ query, onSelect, onClose }: SlashCommandMenuP
                   onClick={() => {
                     if (item.html) {
                       onSelect(item.html);
+                    } else if (onAICommand) {
+                      onAICommand(item.description);
                     } else {
                       onSelect(`<p><em>${item.label}: generating...</em></p>`);
                     }

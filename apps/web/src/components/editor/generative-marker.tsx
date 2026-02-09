@@ -1,6 +1,6 @@
 import type { Editor } from '@tiptap/react';
 import { Button } from '@/components/ui/button';
-import { Sparkles, SparklesIcon } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -94,7 +94,7 @@ export function GenerativeMarker({ editor }: GenerativeMarkerProps) {
             className="w-full"
             onClick={toggleGenerativeZone}
           >
-            <SparklesIcon className="mr-1 h-3.5 w-3.5" />
+            <Sparkles className="mr-1 h-3.5 w-3.5" />
             {isInGenerativeBlock ? 'Remove Generative Zone' : 'Mark as Generative'}
           </Button>
 

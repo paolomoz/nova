@@ -125,13 +125,15 @@ export function ContentTree({ editor }: ContentTreeProps) {
 
     // Rebuild on every update
     editor.on('update', buildTree);
-    editor.on('selectionUpdate', () => {
+    const handleSelectionUpdate = () => {
       const { from } = editor.state.selection;
       setActivePos(from);
-    });
+    };
+    editor.on('selectionUpdate', handleSelectionUpdate);
 
     return () => {
       editor.off('update', buildTree);
+      editor.off('selectionUpdate', handleSelectionUpdate);
     };
   }, [editor, buildTree]);
 

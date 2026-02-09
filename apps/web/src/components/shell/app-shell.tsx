@@ -1,8 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
-import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson, ChevronsUpDown } from 'lucide-react';
+import { useAILayout } from '@/lib/ai-layout';
+import { Globe, FileText, Image, Sparkles, Settings, LogOut, Blocks, Palette, Building2, Search, FileJson, ChevronsUpDown, MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useRef } from 'react';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { AIRail } from '@/components/ai/ai-rail';
 
 const navItems = [
   { path: '/sites', label: 'Sites', icon: Globe },
@@ -20,8 +23,11 @@ const navItems = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { user, org, orgs, logout, switchOrg } = useAuth();
+  const { mode, toggle, railPush } = useAILayout();
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
   const orgMenuRef = useRef<HTMLDivElement>(null);
+
+  const isRailOpen = mode === 'rail';
 
   // Close org menu on outside click
   useEffect(() => {
@@ -34,6 +40,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [orgMenuOpen]);
+
+  // Cmd+. to toggle AI Rail
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '.' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        e.preventDefault();
+        toggle('rail');
+      }
+      if (e.key === '.' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+        e.preventDefault();
+        toggle('fullscreen');
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [toggle]);
 
   return (
     <div className="flex h-screen">
@@ -68,6 +90,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Bottom section */}
         <div className="mt-auto flex flex-col items-center gap-2">
+          {/* AI Assistant toggle */}
+          <button
+            onClick={() => toggle('rail')}
+            title="AI Assistant (Cmd+.)"
+            aria-label="Toggle AI Assistant"
+            className={cn(
+              'flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-150',
+              isRailOpen
+                ? 'ai-gradient-vivid text-white'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            )}
+          >
+            <MessageSquareText className="h-5 w-5" />
+          </button>
+
           {/* Org switcher */}
           {orgs.length > 1 && (
             <div className="relative" ref={orgMenuRef}>
@@ -115,6 +152,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
 
+          {/* Theme toggle */}
+          <ThemeToggle />
+
           {/* Logout */}
           <button
             onClick={logout}
@@ -127,8 +167,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto bg-background">{children}</main>
+      {/* Main content + AI Rail */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <main className={cn(
+          'flex-1 overflow-auto bg-background transition-all duration-200',
+          isRailOpen && railPush && 'mr-[360px]',
+        )}>
+          {children}
+        </main>
+        <AIRail />
+      </div>
     </div>
   );
 }

@@ -8,22 +8,22 @@ MODEL_PRESET = "production"
 DEBUG = "false"
 VOYAGE_MODEL = "voyage-3"
 
-# [[kv_namespaces]]
-# binding = "SESSIONS"
-# id = ""
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "sessions-kv"
 
-# [[kv_namespaces]]
-# binding = "DA_TOKEN_CACHE"
-# id = ""
+[[kv_namespaces]]
+binding = "DA_TOKEN_CACHE"
+id = "da-token-cache-kv"
 
-# [[vectorize]]
-# binding = "VECTORIZE"
-# index_name = "nova-content"
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
 
-# [[ d1_databases ]]
-# binding = "DB"
-# database_name = "nova-db"
-# database_id = ""
+[[ d1_databases ]]
+binding = "DB"
+database_name = "nova-db"
+database_id = "local-nova-db"
 
 [dev]
 port = 8788

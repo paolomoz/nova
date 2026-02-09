@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import ImageExt from '@tiptap/extension-image';
 import UnderlineExt from '@tiptap/extension-underline';
 import TableExt from '@tiptap/extension-table';
@@ -11,6 +13,10 @@ import TableHeader from '@tiptap/extension-table-header';
 import Placeholder from '@tiptap/extension-placeholder';
 import { api } from '@/lib/api';
 import { useProject } from '@/lib/project';
+import { useAuth } from '@/lib/auth';
+import { useCollab } from '@/lib/collab';
+import { useAILayout } from '@/lib/ai-layout';
+import { useAI } from '@/lib/ai';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
@@ -25,10 +31,13 @@ import { AIBlockActions } from '@/components/editor/ai-block-actions';
 import { SlashCommand } from '@/components/editor/extensions/slash-command';
 import { SlashCommandMenu } from '@/components/editor/ai-menu';
 import { WysiwygEditor, type WysiwygEditorHandle } from '@/components/editor/wysiwyg-editor';
+import { CollabCursors } from '@/components/editor/collab-cursors';
+import { AISplitView } from '@/components/ai/ai-split-view';
 import {
   Save, Eye, Globe, Loader2, ChevronLeft,
   PanelLeftClose, PanelLeftOpen, PanelRightClose,
   LayoutGrid, FileText, Image, Settings2, Code, Monitor,
+  SplitSquareHorizontal,
 } from 'lucide-react';
 
 type EditorMode = 'visual' | 'source';
@@ -37,8 +46,13 @@ type RightPanel = 'preview' | 'assets' | 'metadata';
 
 export function EditorPage() {
   const [searchParams] = useSearchParams();
-  const { activeProjectId: projectId, loadProjects, loading: projectsLoading } = useProject();
+  const { activeProjectId: projectId, projects, loadProjects, loading: projectsLoading } = useProject();
+  const { user } = useAuth();
+  const { ydoc, awareness, connect: collabConnect, disconnect: collabDisconnect } = useCollab();
   const pagePath = searchParams.get('path') || '';
+
+  // Derive active project for DA org/repo info
+  const activeProject = projects.find((p) => p.id === projectId);
 
   // Ensure projects are loaded (handles direct navigation to editor)
   useEffect(() => {
@@ -46,6 +60,22 @@ export function EditorPage() {
       loadProjects();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Connect / disconnect collaboration when page changes
+  useEffect(() => {
+    if (!activeProject || !pagePath || !user) return;
+
+    collabConnect({
+      org: activeProject.da_org,
+      repo: activeProject.da_repo,
+      path: pagePath,
+      user: { id: user.id, name: user.name },
+    });
+
+    return () => {
+      collabDisconnect();
+    };
+  }, [activeProject, pagePath, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Editor mode
   const [editorMode, setEditorMode] = useState<EditorMode>('visual');
@@ -67,6 +97,9 @@ export function EditorPage() {
   const [rightPanel, setRightPanel] = useState<RightPanel>('preview');
   const [metadataBlock, setMetadataBlock] = useState<string | null>(null);
 
+  // AI layout
+  const { mode: aiMode, setContextual, openMode: openAIMode } = useAILayout();
+
   // Slash command state
   const [slashCommand, setSlashCommand] = useState<{
     query: string;
@@ -74,10 +107,31 @@ export function EditorPage() {
     to: number;
   } | null>(null);
 
+  // Derive user color for collaboration cursors
+  const collabUserColor = user
+    ? (['#3B63FB','#E5484D','#30A46C','#E38627','#8E4EC6','#0091FF'][
+        Math.abs([...user.id].reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0)) % 6
+      ])
+    : '#3B63FB';
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
+        // Disable built-in history — Collaboration extension handles undo/redo via Y.js
+        history: false,
+      }),
+      // Y.js collaborative editing
+      Collaboration.configure({
+        document: ydoc,
+      }),
+      // Collaborative cursor presence
+      CollaborationCursor.configure({
+        provider: { awareness } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        user: {
+          name: user?.name ?? 'Anonymous',
+          color: collabUserColor,
+        },
       }),
       ImageExt.configure({ inline: false, allowBase64: true }),
       UnderlineExt,
@@ -106,6 +160,31 @@ export function EditorPage() {
       },
     },
   });
+
+  // Text selection handler for contextual AI suggestions
+  useEffect(() => {
+    if (editorMode === 'visual' || !editor) return;
+
+    const handleSelectionChange = () => {
+      const { from, to } = editor.state.selection;
+      if (to - from > 10) {
+        // Get the selected text
+        const selectedText = editor.state.doc.textBetween(from, to, ' ');
+        // Get cursor position from the DOM for popover placement
+        const domSelection = window.getSelection();
+        if (domSelection && domSelection.rangeCount > 0) {
+          const range = domSelection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          setContextual(selectedText, { x: rect.left, y: rect.bottom });
+        }
+      }
+    };
+
+    editor.on('selectionUpdate', handleSelectionChange);
+    return () => {
+      editor.off('selectionUpdate', handleSelectionChange);
+    };
+  }, [editor, editorMode, setContextual]);
 
   // Load page content (for Source mode / TipTap)
   useEffect(() => {
@@ -299,6 +378,10 @@ export function EditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Collaboration presence */}
+          <CollabCursors />
+          <Separator orientation="vertical" className="h-6" />
+
           {/* Visual / Source toggle */}
           <Tabs value={editorMode} onValueChange={(v) => handleModeSwitch(v as EditorMode)}>
             <TabsList className="h-8">
@@ -315,6 +398,17 @@ export function EditorPage() {
 
           {editorMode === 'source' && projectId && <GenerativeMarker editor={editor} />}
           {editorMode === 'source' && projectId && <AIBlockActions editor={editor} projectId={projectId} />}
+
+          <Button
+            variant={aiMode === 'split' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8"
+            onClick={() => openAIMode(aiMode === 'split' ? 'none' : 'split')}
+            title="AI Split View"
+          >
+            <SplitSquareHorizontal className="mr-1 h-3.5 w-3.5" />
+            AI Split
+          </Button>
 
           <Button
             variant="outline"
@@ -337,6 +431,7 @@ export function EditorPage() {
         </div>
       </div>
 
+      <AISplitView>
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar — only in Source mode (Outline needs TipTap) or Blocks tab */}
         {leftPanelOpen && projectId && (editorMode === 'source' || leftPanel === 'blocks') && (
@@ -467,6 +562,31 @@ export function EditorPage() {
                     background: hsl(var(--muted));
                     font-weight: 600;
                   }
+                  /* Collaboration cursor styles */
+                  .nova-editor .collaboration-cursor__caret {
+                    border-left: 2px solid;
+                    border-color: var(--collab-color, #3B63FB);
+                    margin-left: -1px;
+                    margin-right: -1px;
+                    pointer-events: none;
+                    position: relative;
+                    word-break: normal;
+                  }
+                  .nova-editor .collaboration-cursor__label {
+                    font-style: normal;
+                    font-weight: 600;
+                    font-size: 10px;
+                    line-height: 1;
+                    padding: 1px 4px;
+                    border-radius: 3px 3px 3px 0;
+                    position: absolute;
+                    top: -1.4em;
+                    left: -1px;
+                    user-select: none;
+                    white-space: nowrap;
+                    color: #fff;
+                    background-color: var(--collab-color, #3B63FB);
+                  }
                 `}</style>
                 <EditorContent editor={editor} />
 
@@ -475,6 +595,17 @@ export function EditorPage() {
                     query={slashCommand.query}
                     onSelect={handleSlashSelect}
                     onClose={() => setSlashCommand(null)}
+                    onAICommand={(prompt) => {
+                      setSlashCommand(null);
+                      openAIMode('rail');
+                      // Small delay to let the rail open, then trigger AI
+                      setTimeout(() => {
+                        if (projectId) {
+                          const { executeStreaming } = useAI.getState();
+                          executeStreaming(projectId, prompt);
+                        }
+                      }, 200);
+                    }}
                   />
                 )}
               </>
@@ -557,6 +688,7 @@ export function EditorPage() {
           </div>
         )}
       </div>
+      </AISplitView>
     </div>
   );
 }

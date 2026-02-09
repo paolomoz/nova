@@ -22,14 +22,17 @@ id = "sessions-kv"
 binding = "DA_TOKEN_CACHE"
 id = "da-token-cache-kv"
 
-# Vectorize and Queues not available locally — handled gracefully
-# [[vectorize]]
-# binding = "VECTORIZE"
-# index_name = "nova-content"
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
 
-# [[queues.producers]]
-# queue = "nova-embed-queue"
-# binding = "EMBED_QUEUE"
+[[queues.producers]]
+queue = "nova-embed-queue"
+binding = "EMBED_QUEUE"
+
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "nova-assets"
 
 [dev]
 port = 8787

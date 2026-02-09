@@ -1,10 +1,13 @@
 import { chunkHtmlContent, embedContent } from './embedders/content.js';
 import { embedStructuredData } from './embedders/structured.js';
+import { embedAsset } from './embedders/assets.js';
 
 interface Env {
   VOYAGE_API_KEY: string;
   VOYAGE_MODEL: string;
+  OPENAI_API_KEY: string;
   VECTORIZE: VectorizeIndex;
+  ASSETS_BUCKET?: R2Bucket;
 }
 
 interface EmbedMessage {
@@ -13,6 +16,7 @@ interface EmbedMessage {
   path: string;
   html?: string;
   data?: Record<string, unknown>;
+  assetUrl?: string;
 }
 
 export default {
@@ -68,8 +72,14 @@ async function processMessage(
       return { embedded: 1, type: 'structured' };
     }
     case 'asset': {
-      // Phase 7: visual embedding
-      return { embedded: 0, type: 'asset' };
+      const count = await embedAsset(msg.path, msg.projectId, {
+        OPENAI_API_KEY: env.OPENAI_API_KEY,
+        VOYAGE_API_KEY: env.VOYAGE_API_KEY,
+        VOYAGE_MODEL: env.VOYAGE_MODEL,
+        VECTORIZE: env.VECTORIZE,
+        ASSETS_BUCKET: env.ASSETS_BUCKET,
+      }, msg.assetUrl);
+      return { embedded: count, type: 'asset' };
     }
     default:
       return { embedded: 0, type: 'unknown' };

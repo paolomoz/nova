@@ -36,16 +36,13 @@ export function BlockLibraryManager() {
 
   const handleDelete = async (blockName: string) => {
     if (!projectId) return;
-    // Find block by name from DB blocks
     const block = blocks.find((b) => b.name === blockName && b.isCustom);
     if (!block) return;
-    // We need the ID — fetch from API
-    const data = await api.getBlocks(projectId);
-    const dbBlock = data.blocks.find((b: BlockDefinition) => b.name === blockName && b.isCustom);
-    if (!dbBlock) return;
-    // The blocks route returns blocks from getBlockLibrary which doesn't include IDs
-    // Use the DB CRUD endpoint
-    // For now, just reload
+    try {
+      await api.deleteBlock(projectId, blockName);
+    } catch {
+      // Non-fatal — block may not have a DB ID yet
+    }
     loadBlocks();
   };
 
@@ -154,7 +151,12 @@ export function BlockLibraryManager() {
                                   <Eye className="h-3 w-3" />
                                   Preview
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1"
+                                  onClick={(e) => { e.stopPropagation(); setSelectedBlock(block.name); }}
+                                >
                                   <Pencil className="h-3 w-3" />
                                   Edit
                                 </Button>
@@ -168,7 +170,12 @@ export function BlockLibraryManager() {
                                 </Button>
                               </>
                             )}
-                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={(e) => { e.stopPropagation(); setPreviewBlockId(block.name); }}
+                            >
                               <Code className="h-3 w-3" />
                               View Code
                             </Button>

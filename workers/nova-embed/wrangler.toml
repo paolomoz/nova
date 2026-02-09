@@ -6,14 +6,14 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 VOYAGE_MODEL = "voyage-3"
 
-# [[vectorize]]
-# binding = "VECTORIZE"
-# index_name = "nova-content"
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "nova-content"
 
-# [[queues.consumers]]
-# queue = "nova-embed-queue"
-# max_batch_size = 10
-# max_batch_timeout = 30
+[[queues.consumers]]
+queue = "nova-embed-queue"
+max_batch_size = 10
+max_batch_timeout = 30
 
 [dev]
 port = 8789
