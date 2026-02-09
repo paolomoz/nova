@@ -298,3 +298,5 @@ The demo runs on Nova's real stack:
 3. **CORS credentials** — `Access-Control-Allow-Origin: *` with `credentials: true` is invalid. Fixed to echo the request origin.
 4. **No loading indicator** — Single-mode AI queries showed no UI feedback. Fixed by setting `currentStep: 'Thinking...'` on stream start.
 5. **AI response not rendered** — Combination of bugs #1 and #2 caused zero AI output in the rail. All fixed.
+6. **Auto-navigate missing** — After AI created a page, user had to manually navigate. Fixed by including `toolCalls` in `done` SSE event, detecting `create_page` calls, and showing an insight card with "Open in Editor" action.
+7. **Preview warmup failure** — Newly created pages returned 404 from AEM preview on first load. Fixed by adding retry after 3s delay and reloading the WYSIWYG iframe once preview succeeds.
