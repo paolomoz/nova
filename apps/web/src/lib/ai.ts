@@ -29,10 +29,28 @@ interface ValidationResult {
   suggestions: string[];
 }
 
+export interface InsightCard {
+  id: string;
+  message: string;
+  type: 'suggestion' | 'warning' | 'info';
+  actions: Array<{ label: string; action: string }>;
+  dismissed?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'insight';
+  content: string;
+  timestamp: number;
+  insight?: InsightCard;
+}
+
 interface AIState {
   loading: boolean;
   streaming: boolean;
   response: string | null;
+  messages: ChatMessage[];
+  insights: InsightCard[];
   recentActions: AIAction[];
   currentPlan: PlanInfo | null;
   currentStep: string | null;
@@ -43,12 +61,19 @@ interface AIState {
   executeStreaming: (projectId: string, prompt: string) => void;
   cancelExecution: () => void;
   loadHistory: (projectId: string) => Promise<void>;
+  addInsight: (insight: Omit<InsightCard, 'id'>) => void;
+  dismissInsight: (id: string) => void;
+  handleInsightAction: (insightId: string, action: string) => void;
 }
+
+let insightCounter = 0;
 
 export const useAI = create<AIState>((set, get) => ({
   loading: false,
   streaming: false,
   response: null,
+  messages: [],
+  insights: [],
   recentActions: [],
   currentPlan: null,
   currentStep: null,
@@ -76,19 +101,51 @@ export const useAI = create<AIState>((set, get) => ({
     }
   },
 
+  addInsight: (insight: Omit<InsightCard, 'id'>) => {
+    const id = `insight-${++insightCounter}`;
+    const card: InsightCard = { ...insight, id };
+    set((state) => ({
+      insights: [...state.insights, card],
+      messages: [
+        ...state.messages,
+        { id, role: 'insight' as const, content: insight.message, timestamp: Date.now(), insight: card },
+      ],
+    }));
+  },
+
+  dismissInsight: (id: string) => {
+    set((state) => ({
+      insights: state.insights.map((i) => (i.id === id ? { ...i, dismissed: true } : i)),
+    }));
+  },
+
+  handleInsightAction: (insightId: string, action: string) => {
+    // For now, dismiss the insight after any action
+    get().dismissInsight(insightId);
+  },
+
   executeStreaming: (projectId: string, prompt: string) => {
     // Cancel any existing stream
     get().abortController?.abort();
 
-    set({
+    // Add user message to chat
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: prompt,
+      timestamp: Date.now(),
+    };
+
+    set((state) => ({
       streaming: true,
       loading: true,
       response: null,
+      messages: [...state.messages, userMsg],
       currentPlan: null,
-      currentStep: null,
+      currentStep: 'Thinking...',
       completedSteps: [],
       validationResult: null,
-    });
+    }));
 
     const controller = api.streamAI(projectId, prompt, (event: SSEStreamEvent) => {
       switch (event.event) {
@@ -127,9 +184,30 @@ export const useAI = create<AIState>((set, get) => ({
           set({ validationResult: validation, currentStep: null });
           break;
         }
+        case 'insight': {
+          const insightData = event.data as { message: string; type?: string; actions?: Array<{ label: string; action: string }> };
+          get().addInsight({
+            message: insightData.message,
+            type: (insightData.type as InsightCard['type']) || 'suggestion',
+            actions: insightData.actions || [
+              { label: 'Accept', action: 'accept' },
+              { label: 'Dismiss', action: 'dismiss' },
+            ],
+          });
+          break;
+        }
         case 'done': {
           const { response } = event.data as { response: string };
-          set({ streaming: false, loading: false, response, currentStep: null, abortController: null });
+          const assistantMsg: ChatMessage = {
+            id: `msg-${Date.now()}`,
+            role: 'assistant',
+            content: response,
+            timestamp: Date.now(),
+          };
+          set((state) => ({
+            streaming: false, loading: false, response, currentStep: null, abortController: null,
+            messages: [...state.messages, assistantMsg],
+          }));
           // Refresh history
           api.getActionHistory(projectId).then((history) => {
             set({

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Sparkles, X, Maximize2, ArrowUp, Loader2, Square,
-  MessageSquare, Compass, Settings2, Check, AlertTriangle,
+  MessageSquare, Compass, Settings2, Check, AlertTriangle, User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAI } from '@/lib/ai';
@@ -9,6 +9,7 @@ import { useAILayout } from '@/lib/ai-layout';
 import { useProject } from '@/lib/project';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AIResponse } from './ai-response';
+import { InsightCard } from './insight-card';
 import { DiscoveryPrompts } from './discovery-prompts';
 import { ConversationList } from './conversation-list';
 import { ContextPicker, type ContextScope } from './context-picker';
@@ -16,8 +17,8 @@ import { ContextPicker, type ContextScope } from './context-picker';
 export function AIRail() {
   const { mode, railTab, setRailTab, close, toggleExpand, railPush, toggleRailPush } = useAILayout();
   const {
-    loading, streaming, response, currentPlan, currentStep, completedSteps,
-    validationResult, executeStreaming, cancelExecution,
+    loading, streaming, response, messages, insights, currentPlan, currentStep, completedSteps,
+    validationResult, executeStreaming, cancelExecution, dismissInsight, handleInsightAction,
   } = useAI();
   const projectId = useProject((s) => s.activeProjectId);
 
@@ -36,12 +37,19 @@ export function AIRail() {
     }
   }, [isOpen]);
 
-  // Auto-scroll to bottom when streaming
+  // Expose addInsight for demo/testing via window
+  const { addInsight } = useAI();
   useEffect(() => {
-    if (streaming && scrollRef.current) {
+    (window as unknown as Record<string, unknown>).__novaAddInsight = addInsight;
+    return () => { delete (window as unknown as Record<string, unknown>).__novaAddInsight; };
+  }, [addInsight]);
+
+  // Auto-scroll to bottom on new messages or streaming updates
+  useEffect(() => {
+    if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [streaming, currentStep, completedSteps.length]);
+  }, [streaming, currentStep, completedSteps.length, messages.length]);
 
   const handleSubmit = useCallback(() => {
     if (!input.trim() || !projectId || isExecuting) return;
@@ -128,7 +136,49 @@ export function AIRail() {
           <>
             {/* Chat thread */}
             <ScrollArea className="flex-1">
-              <div ref={scrollRef} className="space-y-4 p-4">
+              <div ref={scrollRef} className="space-y-3 p-4">
+                {/* Empty state */}
+                {messages.length === 0 && !isExecuting && (
+                  <div className="flex flex-col items-center gap-3 py-8 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl ai-gradient-vivid">
+                      <Sparkles className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">How can I help?</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Ask about your content, or try a suggestion below.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Message history */}
+                {messages.map((msg) => {
+                  if (msg.role === 'user') {
+                    return (
+                      <div key={msg.id} className="flex justify-end">
+                        <div className="max-w-[85%] rounded-lg bg-primary/10 px-3 py-2 text-sm text-foreground">
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (msg.role === 'insight' && msg.insight) {
+                    return (
+                      <InsightCard
+                        key={msg.id}
+                        insight={msg.insight}
+                        onAction={handleInsightAction}
+                        onDismiss={dismissInsight}
+                      />
+                    );
+                  }
+                  if (msg.role === 'assistant') {
+                    return <AIResponse key={msg.id} response={msg.content} compact />;
+                  }
+                  return null;
+                })}
+
                 {/* Streaming progress — plan mode */}
                 {streaming && currentPlan && (
                   <div className="animate-fade-in-up rounded-lg bg-background p-3 text-sm space-y-2.5">
@@ -195,26 +245,6 @@ export function AIRail() {
                       {validationResult.issues.map((issue, i) => (
                         <div key={i} className="text-xs text-muted-foreground">- {issue}</div>
                       ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* AI Response */}
-                {response && !streaming && (
-                  <AIResponse response={response} compact />
-                )}
-
-                {/* Empty state */}
-                {!response && !isExecuting && (
-                  <div className="flex flex-col items-center gap-3 py-8 text-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl ai-gradient-vivid">
-                      <Sparkles className="h-6 w-6 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">How can I help?</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Ask about your content, or try a suggestion below.
-                      </p>
                     </div>
                   </div>
                 )}

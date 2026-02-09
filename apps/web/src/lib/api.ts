@@ -1,5 +1,9 @@
 const API_BASE = '/api';
 
+// For SSE streaming, connect directly to the worker to bypass Vite proxy buffering.
+// In production, SSE goes through the same origin; in dev, wrangler runs on :8787.
+const SSE_BASE = import.meta.env.DEV ? 'http://localhost:8787/api' : '/api';
+
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -448,7 +452,7 @@ export const api = {
 
     (async () => {
       try {
-        const response = await fetch(`${API_BASE}/ai/${projectId}/stream`, {
+        const response = await fetch(`${SSE_BASE}/ai/${projectId}/stream`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -466,6 +470,7 @@ export const api = {
 
         const decoder = new TextDecoder();
         let buffer = '';
+        let currentEvent = '';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -475,7 +480,6 @@ export const api = {
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
 
-          let currentEvent = '';
           for (const line of lines) {
             if (line.startsWith('event: ')) {
               currentEvent = line.slice(7).trim();

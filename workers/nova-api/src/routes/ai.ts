@@ -111,7 +111,7 @@ ai.post('/:projectId/stream', async (c) => {
   return new Response(readable, {
     headers: {
       ...SSE_HEADERS,
-      'Access-Control-Allow-Origin': c.env.CORS_ORIGIN || '*',
+      'Access-Control-Allow-Origin': c.env.CORS_ORIGIN || c.req.header('origin') || '*',
       'Access-Control-Allow-Credentials': 'true',
     },
   });
