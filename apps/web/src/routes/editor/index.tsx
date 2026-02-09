@@ -205,30 +205,6 @@ export function EditorPage() {
     });
   }, [projectId, pagePath, editor]);
 
-  // Auto-trigger preview warmup on page load (so Visual mode has content)
-  useEffect(() => {
-    if (!projectId || !pagePath) return;
-    let cancelled = false;
-    api.previewPage(projectId, pagePath).then(() => {
-      // Preview succeeded — reload WYSIWYG iframe to pick up content
-      if (!cancelled && editorMode === 'visual') {
-        setWysiwygKey((k) => k + 1);
-      }
-    }).catch(() => {
-      // First attempt failed — retry after a short delay
-      if (cancelled) return;
-      setTimeout(() => {
-        if (cancelled) return;
-        api.previewPage(projectId, pagePath).then(() => {
-          if (!cancelled && editorMode === 'visual') {
-            setWysiwygKey((k) => k + 1);
-          }
-        }).catch(() => {});
-      }, 3000);
-    });
-    return () => { cancelled = true; };
-  }, [projectId, pagePath]);
-
   // Save — works for both modes
   const handleSave = useCallback(async () => {
     if (!projectId || !pagePath) return;
@@ -245,6 +221,11 @@ export function EditorPage() {
       await api.createPage(projectId, pagePath, html);
       setDirty(false);
       setLastSaved(new Date());
+
+      // Trigger preview warmup so the WYSIWYG iframe picks up saved changes
+      api.previewPage(projectId, pagePath).then(() => {
+        setWysiwygKey((k) => k + 1);
+      }).catch(() => {});
     } catch {
       // Handle error
     } finally {
@@ -303,6 +284,8 @@ export function EditorPage() {
       setPreviewUrl(result.url);
       setRightPanel('preview');
       setRightPanelOpen(true);
+      // Refresh WYSIWYG iframe so visual editor reflects the latest preview
+      setWysiwygKey((k) => k + 1);
     } catch {
       // Handle error
     }

@@ -574,19 +574,57 @@ content.get('/:projectId/wysiwyg', async (c) => {
   if (aemPath.endsWith('/index')) aemPath = aemPath.slice(0, -5);
   const aemPageUrl = `${aemBaseUrl}${aemPath}`;
 
-  // Fetch rendered HTML from AEM (with timeout)
+  // Helper: fetch AEM page with a short timeout
+  const fetchAem = async (url: string, timeoutMs = 10000): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Fetch rendered HTML from AEM
   let renderedHtml: string;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const aemResponse = await fetch(aemPageUrl, { signal: controller.signal });
-    clearTimeout(timeout);
+    let aemResponse = await fetchAem(aemPageUrl);
+
+    // Self-healing: if AEM returns non-200, auto-trigger preview warmup and poll
     if (!aemResponse.ok) {
-      return c.html(
-        buildFallbackPage(`AEM returned ${aemResponse.status}. Click Preview to generate the AEM preview first.`),
-        200,
-      );
+      const warmupUrl = `https://admin.hlx.page/preview/${org}/${site}/main${aemPath}`;
+      try {
+        const warmupCtrl = new AbortController();
+        const warmupTimer = setTimeout(() => warmupCtrl.abort(), 8000);
+        await fetch(warmupUrl, { method: 'POST', signal: warmupCtrl.signal }).then((r) => {
+          clearTimeout(warmupTimer);
+          // Consume body to avoid connection leak
+          r.body?.cancel();
+        });
+      } catch {
+        // Warmup request failed — continue to poll anyway
+      }
+
+      // Poll AEM with backoff: 1s, 2s, 3s (~6s total wait)
+      const delays = [1000, 2000, 3000];
+      for (const delay of delays) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        try {
+          aemResponse = await fetchAem(aemPageUrl, 5000);
+          if (aemResponse.ok) break;
+        } catch {
+          // Poll attempt failed — try next
+        }
+      }
+
+      if (!aemResponse.ok) {
+        return c.html(
+          buildFallbackPage(`AEM returned ${aemResponse.status}. The page preview is warming up — try refreshing in a few seconds.`),
+          200,
+        );
+      }
     }
+
     renderedHtml = await aemResponse.text();
   } catch {
     return c.html(
