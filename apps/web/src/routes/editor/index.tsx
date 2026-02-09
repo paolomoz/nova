@@ -498,6 +498,7 @@ export function EditorPage() {
                 projectId={projectId}
                 pagePath={pagePath}
                 onDirty={() => setDirty(true)}
+                onSave={handleSave}
                 onBlockSelected={(blockName) => {
                   setMetadataBlock(blockName);
                   setRightPanel('metadata');

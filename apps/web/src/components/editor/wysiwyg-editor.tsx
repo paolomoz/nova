@@ -17,11 +17,12 @@ interface WysiwygEditorProps {
   projectId: string;
   pagePath: string;
   onDirty?: () => void;
+  onSave?: () => void;
   onBlockSelected?: (blockName: string) => void;
 }
 
 export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>(
-  function WysiwygEditor({ projectId, pagePath, onDirty, onBlockSelected }, ref) {
+  function WysiwygEditor({ projectId, pagePath, onDirty, onSave, onBlockSelected }, ref) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -53,12 +54,15 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
               contentResolverRef.current = null;
             }
             break;
+          case 'bridge:save':
+            onSave?.();
+            break;
         }
       }
 
       window.addEventListener('message', handleMessage);
       return () => window.removeEventListener('message', handleMessage);
-    }, [onDirty, onBlockSelected]);
+    }, [onDirty, onSave, onBlockSelected]);
 
     // Reset loading state when path changes
     useEffect(() => {

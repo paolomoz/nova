@@ -216,9 +216,20 @@ function buildBridgeScript(sourceHtml: string): string {
       characterData: true,
       characterDataOldValue: true
     });
+
+    // Forward Cmd+S / Ctrl+S to parent so the save handler fires
+    document.addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        window.parent.postMessage({ type: 'bridge:save' }, PARENT_ORIGIN);
+      }
+    });
   }
 
   // --- Content extraction: patch text edits into source HTML ---
+  // Strategy: collect all text-bearing elements from source, find their
+  // original text, then search the live DOM for the matching element
+  // (by tag + original text) and replace with the live text.
   function extractContent() {
     var main = document.querySelector('main');
     if (!main) return window.__NOVA_SOURCE_HTML__;
@@ -227,56 +238,94 @@ function buildBridgeScript(sourceHtml: string): string {
     var sourceDoc = parser.parseFromString(window.__NOVA_SOURCE_HTML__, 'text/html');
     var sourceMain = sourceDoc.querySelector('main') || sourceDoc.body;
 
-    patchTextNodes(sourceMain, main);
+    // Build a map of original text -> live text for text-bearing elements
+    var textTags = ['h1','h2','h3','h4','h5','h6','p','li','td','th','a','strong','em','span','blockquote','figcaption','label','dt','dd'];
+
+    // Collect all source text elements with their original text
+    var sourceEls = [];
+    textTags.forEach(function(tag) {
+      var els = sourceMain.querySelectorAll(tag);
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        // Only leaf-level text (skip elements that contain other text-bearing elements)
+        var hasChildTextEl = false;
+        for (var j = 0; j < textTags.length; j++) {
+          if (el.querySelector(textTags[j])) { hasChildTextEl = true; break; }
+        }
+        if (!hasChildTextEl && el.textContent.trim()) {
+          sourceEls.push({ el: el, tag: tag, originalText: el.textContent });
+        }
+      }
+    });
+
+    // For each source text element, find the matching live element and patch
+    sourceEls.forEach(function(entry) {
+      // Find in live DOM: same tag with matching original text
+      var liveEls = main.querySelectorAll(entry.tag);
+      var matched = null;
+      for (var i = 0; i < liveEls.length; i++) {
+        // Deep search: AEM decorates blocks, so the element may be deeply nested
+        // Match by original text content
+        if (liveEls[i].textContent.trim() === entry.originalText.trim()) {
+          matched = liveEls[i];
+          break;
+        }
+      }
+
+      // If no exact match, check if the live element's text changed (edited)
+      if (!matched) {
+        // Look for elements of the same tag that DON'T match any source text
+        // This handles the case where text was edited
+        var allSourceTexts = sourceEls.map(function(e) { return e.originalText.trim(); });
+        for (var i = 0; i < liveEls.length; i++) {
+          var liveText = liveEls[i].textContent.trim();
+          if (liveText && allSourceTexts.indexOf(liveText) === -1) {
+            // This live element has text not in source — likely an edit.
+            // Try to match by position: count same-tag elements before it
+            var livePos = Array.from(main.querySelectorAll(entry.tag)).indexOf(liveEls[i]);
+            var sourcePos = Array.from(sourceMain.querySelectorAll(entry.tag)).indexOf(entry.el);
+            if (livePos === sourcePos) {
+              matched = liveEls[i];
+              break;
+            }
+          }
+        }
+      }
+
+      if (matched && matched.textContent !== entry.originalText) {
+        // Patch: update the source element's text content
+        // Preserve child HTML structure if possible (e.g. <a>, <strong>)
+        if (entry.el.children.length === 0) {
+          entry.el.textContent = matched.textContent;
+        } else {
+          // Has child elements — do a careful text-only patch on text nodes
+          patchDirectTextNodes(entry.el, matched);
+        }
+      }
+    });
 
     return sourceMain.innerHTML;
   }
 
-  function patchTextNodes(sourceNode, liveNode) {
-    var sourceChildren = Array.from(sourceNode.childNodes);
-    var liveChildren = Array.from(liveNode.childNodes);
-
-    var liveIdx = 0;
-    for (var i = 0; i < sourceChildren.length; i++) {
-      var sc = sourceChildren[i];
-
-      if (sc.nodeType === Node.TEXT_NODE) {
-        while (liveIdx < liveChildren.length && liveChildren[liveIdx].nodeType !== Node.TEXT_NODE) {
-          liveIdx++;
-        }
-        if (liveIdx < liveChildren.length) {
-          var liveText = liveChildren[liveIdx].textContent;
-          if (sc.textContent !== liveText) {
-            sc.textContent = liveText;
-          }
-          liveIdx++;
-        }
-      } else if (sc.nodeType === Node.ELEMENT_NODE) {
-        var matchingLive = findMatchingElement(sc, liveChildren, liveIdx);
-        if (matchingLive) {
-          patchTextNodes(sc, matchingLive.node);
-          liveIdx = matchingLive.index + 1;
-        }
+  // Patch only direct text nodes within an element
+  function patchDirectTextNodes(sourceEl, liveEl) {
+    var sourceTexts = [];
+    var liveTexts = [];
+    sourceEl.childNodes.forEach(function(n) { if (n.nodeType === Node.TEXT_NODE) sourceTexts.push(n); });
+    liveEl.childNodes.forEach(function(n) { if (n.nodeType === Node.TEXT_NODE) liveTexts.push(n); });
+    for (var i = 0; i < sourceTexts.length && i < liveTexts.length; i++) {
+      if (sourceTexts[i].textContent !== liveTexts[i].textContent) {
+        sourceTexts[i].textContent = liveTexts[i].textContent;
       }
     }
-  }
-
-  function findMatchingElement(sourceEl, liveChildren, startIdx) {
-    var sourceTag = sourceEl.tagName.toLowerCase();
-    for (var i = startIdx; i < liveChildren.length; i++) {
-      var lc = liveChildren[i];
-      if (lc.nodeType === Node.ELEMENT_NODE) {
-        var liveTag = lc.tagName.toLowerCase();
-        if (liveTag === sourceTag) {
-          return { node: lc, index: i };
-        }
-        if (liveTag === 'div') {
-          var inner = lc.querySelector(sourceTag);
-          if (inner) return { node: inner, index: i };
-        }
+    // Also recurse into child elements
+    var sourceChildren = Array.from(sourceEl.children);
+    var liveChildren = Array.from(liveEl.children);
+    for (var i = 0; i < sourceChildren.length && i < liveChildren.length; i++) {
+      if (sourceChildren[i].tagName === liveChildren[i].tagName) {
+        patchDirectTextNodes(sourceChildren[i], liveChildren[i]);
       }
     }
-    return null;
   }
 
   // --- Message handler (parent → iframe) ---

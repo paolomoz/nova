@@ -375,11 +375,11 @@ auth.post('/dev-login', async (c) => {
   // Upsert test org
   const orgId = crypto.randomUUID();
   await c.env.DB.prepare(
-    `INSERT INTO orgs (id, name, slug)
-     VALUES (?, ?, ?)
+    `INSERT INTO orgs (id, name, slug, github_org)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(slug) DO NOTHING`,
   )
-    .bind(orgId, 'Dev Org', 'dev-org')
+    .bind(orgId, 'Dev Org', 'dev-org', 'paolomoz')
     .run();
 
   const org = await c.env.DB.prepare('SELECT id FROM orgs WHERE slug = ?')
@@ -394,6 +394,15 @@ auth.post('/dev-login', async (c) => {
      ON CONFLICT(org_id, user_id) DO NOTHING`,
   )
     .bind(actualOrgId, actualUserId)
+    .run();
+
+  // Ensure default project exists (paolomoz/nova-2)
+  await c.env.DB.prepare(
+    `INSERT INTO projects (id, org_id, name, slug, da_org, da_repo, github_org, github_repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(org_id, slug) DO NOTHING`,
+  )
+    .bind('proj-nova2', actualOrgId, 'Nova 2', 'nova-2', 'paolomoz', 'nova-2', 'paolomoz', 'nova-2')
     .run();
 
   // Create session
