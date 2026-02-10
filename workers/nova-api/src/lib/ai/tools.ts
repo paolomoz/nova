@@ -256,11 +256,13 @@ export async function executeTool(
       return JSON.stringify(items, null, 2);
     }
     case 'read_page': {
-      const source = await daClient.getSource(input.path);
+      const readPath = input.path.endsWith('.html') ? input.path : `${input.path}.html`;
+      const source = await daClient.getSource(readPath);
       return source.content;
     }
     case 'create_page': {
-      await daClient.putSource(input.path, input.content);
+      const pagePath = input.path.endsWith('.html') ? input.path : `${input.path}.html`;
+      await daClient.putSource(pagePath, input.content);
       await logAction(db, userId, projectId, 'create_page', `AI created page at ${input.path}`, { path: input.path });
       // Trigger embed queue
       try {
@@ -273,7 +275,8 @@ export async function executeTool(
       return `Page created at ${input.path}`;
     }
     case 'delete_page': {
-      await daClient.deleteSource(input.path);
+      const deletePath = input.path.endsWith('.html') ? input.path : `${input.path}.html`;
+      await daClient.deleteSource(deletePath);
       await logAction(db, userId, projectId, 'delete_page', `AI deleted page at ${input.path}`, { path: input.path });
       return `Page deleted at ${input.path}`;
     }
