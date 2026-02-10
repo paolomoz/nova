@@ -379,6 +379,35 @@ function wrapInSectionDivs(html: string): string {
 }
 
 /**
+ * Strip AEM decoration artifacts from DA source HTML.
+ *
+ * DA source may contain leftover decoration from previous saves:
+ * - `block` class on block divs (prevents AEM re-decoration)
+ * - `data-block-name`, `data-block-status` attributes
+ * - `style="outline-offset: ..."` from bridge highlighting
+ * - `-wrapper` parent divs from AEM's decorateBlock
+ *
+ * This cleans the HTML so AEM's client-side JS can decorate from scratch.
+ */
+function stripDecorationArtifacts(html: string): string {
+  return html
+    // Remove 'block' class (but keep block name classes like 'hero', 'cards')
+    .replace(/\bclass="([^"]*)\bblock\b([^"]*)"/gi, (_m, before: string, after: string) => {
+      const cleaned = `${before}${after}`.replace(/\s+/g, ' ').trim();
+      return cleaned ? `class="${cleaned}"` : '';
+    })
+    // Remove data-block-name, data-block-status, data-section-status attributes
+    .replace(/\s+data-block-(?:name|status)="[^"]*"/gi, '')
+    .replace(/\s+data-section-status="[^"]*"/gi, '')
+    // Remove bridge highlight inline styles
+    .replace(/\s+style="outline-offset:\s*2px;?"/gi, '')
+    // Remove empty style attributes left behind
+    .replace(/\s+style=""/g, '')
+    // Remove empty class attributes left behind
+    .replace(/\s+class=""/g, '');
+}
+
+/**
  * Build a self-rendered WYSIWYG page from DA source HTML + AEM site-level CSS/JS.
  *
  * Used as an instant fallback when AEM Edge Delivery hasn't pre-rendered the page.
@@ -390,7 +419,7 @@ function wrapInSectionDivs(html: string): string {
  */
 export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string): string {
   // Extract inner content (strip <html>/<body>/<main> wrappers from DA source)
-  const innerContent = extractMainContent(sourceHtml);
+  const innerContent = stripDecorationArtifacts(extractMainContent(sourceHtml));
   // Wrap DA source into section divs (mimics AEM server-side rendering)
   const sectionWrapped = wrapInSectionDivs(innerContent);
   // Rewrite root-relative URLs in the source HTML to go through the proxy
@@ -431,7 +460,7 @@ export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string)
  * @param proxyBasePath - Same-origin proxy path (e.g. /api/content/proj-x/aem-proxy)
  */
 export function buildStandalonePreviewPage(sourceHtml: string, proxyBasePath: string): string {
-  const innerContent = extractMainContent(sourceHtml);
+  const innerContent = stripDecorationArtifacts(extractMainContent(sourceHtml));
   const sectionWrapped = wrapInSectionDivs(innerContent);
   const rewrittenSource = rewriteRootRelativeUrls(sectionWrapped, proxyBasePath);
   const fetchInterceptor = buildFetchInterceptor(proxyBasePath);
