@@ -58,7 +58,7 @@ EDS block structure rules:
 - Accordion: N rows, each row has a question cell + answer cell. Example: <div class="accordion"><div><div><h3>Q?</h3></div><div><p>Answer</p></div></div></div>
 - Tabs: N rows, each row has a label cell + content cell.
 - Hero: 1 row with image cell + text cell.
-- Images use <picture><img src="..." alt="..."></picture>.
+- Images: use <picture><img src="https://placehold.co/800x600/e0e0e0/999.png" alt="descriptive alt text"></picture>. For placeholder images, ALWAYS use placehold.co with the .png extension in the URL path (e.g. https://placehold.co/WIDTHxHEIGHT/BGCOLOR/TEXTCOLOR.png). NEVER omit the .png extension or use query params like ?text= — these break AEM's image optimization pipeline.
 - Section breaks: <hr>. Section metadata: <div class="section-metadata"><div><div>key</div><div>value</div></div></div> placed BEFORE the <hr>.
 - Variants are space-separated classes: <div class="cards horizontal">.`,
       input_schema: {
