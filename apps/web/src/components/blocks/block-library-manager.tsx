@@ -11,13 +11,16 @@ import {
 } from 'lucide-react';
 
 export function BlockLibraryManager() {
-  const projectId = useProject((s) => s.activeProjectId);
+  const { activeProjectId: projectId, loadProjects } = useProject();
   const [blocks, setBlocks] = useState<BlockDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [previewBlockId, setPreviewBlockId] = useState<string | null>(null);
+
+  // Ensure projects are loaded (needed when navigating directly to /blocks)
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   const loadBlocks = useCallback(async () => {
     if (!projectId) return;

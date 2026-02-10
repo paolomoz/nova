@@ -48,11 +48,10 @@ When generating a block, respond with a JSON object containing:
   "variants": ["variant1", "variant2"],
   "structureHtml": "<div class=\\"block-name\\"><div>...</div></div>",
   "css": ".block-name { ... }",
-  "js": "export default async function decorate(block) { ... }",
-  "previewHtml": "<!DOCTYPE html>..."
+  "js": "export default async function decorate(block) { ... }"
 }
 
-The previewHtml should be a complete standalone HTML document that includes the CSS inline, the block HTML, and the JS, so it can be rendered in an iframe for preview.`;
+Do NOT include a previewHtml field — it will be generated automatically from the parts. Keep the response as concise as possible.`;
 
 export async function generateBlock(
   intent: string,
@@ -105,7 +104,7 @@ async function callClaude(
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: BLOCK_SYSTEM_PROMPT,
       messages,
     }),
@@ -124,7 +123,16 @@ async function callClaude(
 
   // Parse JSON from response (handle potential markdown fences)
   const jsonStr = text.replace(/^```json?\s*/m, '').replace(/\s*```$/m, '').trim();
-  const parsed = JSON.parse(jsonStr) as GeneratedBlock;
+
+  let parsed: GeneratedBlock;
+  try {
+    parsed = JSON.parse(jsonStr) as GeneratedBlock;
+  } catch {
+    // JSON likely truncated due to token limit — try to salvage
+    throw new Error(
+      'AI response was truncated (JSON parse failed). The block may be too complex. Try a simpler description.',
+    );
+  }
 
   return {
     name: parsed.name || 'unnamed-block',

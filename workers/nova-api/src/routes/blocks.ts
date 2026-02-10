@@ -134,9 +134,15 @@ blocks.post('/:projectId/generate', async (c) => {
     designTokens: JSON.parse((brand.design_tokens as string) || '{}'),
   } : null;
 
-  const generated = await generateBlock(intent, library, brandProfile, {
-    ANTHROPIC_API_KEY: c.env.ANTHROPIC_API_KEY,
-  });
+  let generated: GeneratedBlock;
+  try {
+    generated = await generateBlock(intent, library, brandProfile, {
+      ANTHROPIC_API_KEY: c.env.ANTHROPIC_API_KEY,
+    });
+  } catch (err) {
+    console.error('Block generation failed:', err);
+    return c.json({ error: (err as Error).message || 'Block generation failed' }, 502);
+  }
 
   // Save to DB as draft
   const id = crypto.randomUUID();
@@ -203,9 +209,15 @@ blocks.post('/:projectId/:blockId/iterate', async (c) => {
     previewHtml: '',
   };
 
-  const updated = await iterateBlock(currentBlock, feedback, history || [], {
-    ANTHROPIC_API_KEY: c.env.ANTHROPIC_API_KEY,
-  });
+  let updated: GeneratedBlock;
+  try {
+    updated = await iterateBlock(currentBlock, feedback, history || [], {
+      ANTHROPIC_API_KEY: c.env.ANTHROPIC_API_KEY,
+    });
+  } catch (err) {
+    console.error('Block iteration failed:', err);
+    return c.json({ error: (err as Error).message || 'Block iteration failed' }, 502);
+  }
 
   // Update in DB
   await c.env.DB.prepare(
