@@ -3,7 +3,8 @@ import type { SSECallback } from '../lib/sse.js';
 import { ModelFactory } from '../lib/model-factory.js';
 import { classifyIntent } from './classify.js';
 import { analyzeAndSelectBlocks } from './reason.js';
-import { generateBlocks } from './generate.js';
+import { generateBlocks, type GeneratedBlock } from './generate.js';
+import { buildEDSHTML } from './block-builders.js';
 import { getBlockCatalog } from '../blocks/registry.js';
 import { getRAGContext } from '../context/rag.js';
 import { createDAClient } from '../lib/da-client.js';
@@ -143,20 +144,23 @@ export async function orchestrate(params: PipelineParams): Promise<PipelineResul
   write({ event: 'reasoning-complete', data: { confidence: reasoningResult.confidence } });
 
   // Stage 3: Content Generation
-  const htmlBlocks = await generateBlocks(
+  const generatedBlocks = await generateBlocks(
     reasoningResult.selectedBlocks, query, ragContext, modelFactory, env, write, effectiveBrandVoice,
   );
 
-  // Build full page HTML
+  // Build full page HTML with proper EDS block structure
+  const htmlBlocks = generatedBlocks.map((b) => b.html);
   let fullHtml: string;
   if (hybridScaffold) {
     // Hybrid mode: inject generated blocks into scaffold's generative zones
     fullHtml = hybridScaffold.replace(
       /<!--\s*generative-zone\s*-->/gi,
-      htmlBlocks.join('\n<hr>\n'),
+      htmlBlocks.join('\n'),
     );
   } else {
-    fullHtml = htmlBlocks.join('\n<hr>\n');
+    // Build a proper EDS page with section wrappers and metadata
+    const title = query.slice(0, 80);
+    fullHtml = buildEDSHTML(generatedBlocks, title, query);
   }
 
   // Page persistence to DA (if path specified)

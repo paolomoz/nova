@@ -124,3 +124,74 @@ export interface VisitorProfile {
   interests?: string[];
   journeyStage?: string;
 }
+
+// ── Block content shapes (JSON output from LLM → deterministic builders) ──
+
+export interface HeroContent {
+  headline: string;
+  subheadline?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  imageAlt?: string;
+}
+
+export interface CardsContent {
+  cards: Array<{
+    title: string;
+    description: string;
+    imageAlt?: string;
+    linkText?: string;
+    linkUrl?: string;
+  }>;
+}
+
+export interface ColumnsContent {
+  columns: Array<{
+    headline?: string;
+    text: string;
+  }>;
+}
+
+export interface AccordionContent {
+  items: Array<{
+    question: string;
+    answer: string;
+  }>;
+}
+
+export interface TabsContent {
+  tabs: Array<{
+    label: string;
+    content: string;
+  }>;
+}
+
+export interface TableContent {
+  headers: string[];
+  rows: Array<string[]>;
+}
+
+export interface TestimonialsContent {
+  testimonials: Array<{
+    quote: string;
+    author: string;
+    role?: string;
+  }>;
+}
+
+export interface CTAContent {
+  headline: string;
+  text?: string;
+  buttonText: string;
+  buttonUrl: string;
+}
+
+export type BlockContent =
+  | HeroContent
+  | CardsContent
+  | ColumnsContent
+  | AccordionContent
+  | TabsContent
+  | TableContent
+  | TestimonialsContent
+  | CTAContent;

@@ -1,77 +1,100 @@
-import type { SelectedBlock } from '@nova/shared-types';
+import type { SelectedBlock, BlockContent } from '@nova/shared-types';
 import type { ModelFactory } from '../lib/model-factory.js';
 import type { SSECallback } from '../lib/sse.js';
+import { buildBlockHTML } from './block-builders.js';
 
 /**
- * Return the canonical EDS row/cell pattern for a block type.
- * Helps the LLM produce conforming structure that survives the DA round-trip.
+ * Return a JSON schema description for each block type.
+ * The LLM outputs JSON matching this schema; builders produce the HTML deterministically.
  */
-function getBlockStructureHint(blockType: string): string {
-  const hints: Record<string, string> = {
-    hero: `Hero: 1 row with an image cell + a text cell.
-<div class="hero">
-  <div>
-    <div><picture><img src="..." alt="..."></picture></div>
-    <div><h1>Headline</h1><p>Subtext</p><p><a href="#">CTA</a></p></div>
-  </div>
-</div>`,
-    columns: `Columns: ONE row with N cells (one per column). Do NOT use N rows.
-<div class="columns">
-  <div>
-    <div><h3>Col 1</h3><p>Text</p></div>
-    <div><h3>Col 2</h3><p>Text</p></div>
-    <div><h3>Col 3</h3><p>Text</p></div>
-  </div>
-</div>`,
-    cards: `Cards: N rows, each row is one card. Each card row has cells (e.g. image cell + text cell).
-<div class="cards">
-  <div>
-    <div><picture><img src="..." alt="..."></picture></div>
-    <div><h3>Card Title</h3><p>Card text</p></div>
-  </div>
-  <div>
-    <div><picture><img src="..." alt="..."></picture></div>
-    <div><h3>Card Title</h3><p>Card text</p></div>
-  </div>
-</div>`,
-    accordion: `Accordion: N rows, each row has a question cell + answer cell.
-<div class="accordion">
-  <div>
-    <div><h3>Question?</h3></div>
-    <div><p>Answer text.</p></div>
-  </div>
-  <div>
-    <div><h3>Question?</h3></div>
-    <div><p>Answer text.</p></div>
-  </div>
-</div>`,
-    tabs: `Tabs: N rows, each row has a label cell + content cell.
-<div class="tabs">
-  <div>
-    <div>Tab Label</div>
-    <div><p>Tab content.</p></div>
-  </div>
-  <div>
-    <div>Tab Label</div>
-    <div><p>Tab content.</p></div>
-  </div>
-</div>`,
+function getBlockContentSchema(blockType: string): string {
+  const schemas: Record<string, string> = {
+    hero: `{
+  "headline": "string — compelling H1 headline",
+  "subheadline": "string (optional) — supporting paragraph",
+  "ctaText": "string (optional) — call-to-action button text",
+  "ctaUrl": "string (optional) — CTA link URL",
+  "imageAlt": "string (optional) — alt text for the hero image"
+}`,
+    cards: `{
+  "cards": [
+    {
+      "title": "string — card title",
+      "description": "string — card body text",
+      "imageAlt": "string (optional) — alt text for card image",
+      "linkText": "string (optional) — link text",
+      "linkUrl": "string (optional) — link URL"
+    }
+  ]
+}
+Generate 3-6 cards.`,
+    columns: `{
+  "columns": [
+    {
+      "headline": "string (optional) — column heading",
+      "text": "string — column body text"
+    }
+  ]
+}
+Generate 2-4 columns.`,
+    accordion: `{
+  "items": [
+    {
+      "question": "string — the question",
+      "answer": "string — the answer"
+    }
+  ]
+}
+Generate 3-6 FAQ items.`,
+    tabs: `{
+  "tabs": [
+    {
+      "label": "string — tab label",
+      "content": "string — tab content text"
+    }
+  ]
+}
+Generate 2-5 tabs.`,
+    table: `{
+  "headers": ["string — column header", ...],
+  "rows": [["string — cell value", ...], ...]
+}
+Generate a table with 2-5 columns and 3-6 data rows.`,
+    testimonials: `{
+  "testimonials": [
+    {
+      "quote": "string — the testimonial quote",
+      "author": "string — person's name",
+      "role": "string (optional) — job title or role"
+    }
+  ]
+}
+Generate 2-4 testimonials.`,
+    cta: `{
+  "headline": "string — CTA headline",
+  "text": "string (optional) — supporting text",
+  "buttonText": "string — button label",
+  "buttonUrl": "string — button link URL"
+}`,
   };
 
-  if (hints[blockType]) return hints[blockType];
+  if (schemas[blockType]) return schemas[blockType];
 
-  // Generic fallback for unknown block types
-  return `Generic block: use rows (direct child <div>s of the block) and cells (direct child <div>s of each row).
-<div class="${blockType}">
-  <div>
-    <div>Cell content</div>
-  </div>
-</div>`;
+  return `{
+  "content": "string — the block content"
+}
+Return a simple JSON object with relevant content fields for this "${blockType}" block.`;
+}
+
+export interface GeneratedBlock {
+  blockType: string;
+  html: string;
+  sectionStyle?: string;
 }
 
 /**
  * Stage 3: Content Generation (fast model — parallel + SSE streaming)
- * Generates HTML content for each selected block.
+ * Generates JSON content for each block, then deterministically builds EDS HTML.
  */
 export async function generateBlocks(
   blocks: SelectedBlock[],
@@ -81,8 +104,8 @@ export async function generateBlocks(
   env: { ANTHROPIC_API_KEY?: string; CEREBRAS_API_KEY?: string },
   write: SSECallback,
   brandVoice?: string,
-): Promise<string[]> {
-  const htmlBlocks: string[] = [];
+): Promise<GeneratedBlock[]> {
+  const generatedBlocks: GeneratedBlock[] = [];
 
   // Generate blocks in parallel batches of 3
   for (let i = 0; i < blocks.length; i += 3) {
@@ -92,51 +115,57 @@ export async function generateBlocks(
       write({ event: 'block-start', data: { blockType: block.type, index: idx } });
 
       const brandGuidance = brandVoice ? `\nBrand voice: ${brandVoice}` : '';
-      const structureHint = getBlockStructureHint(block.type);
+      const contentSchema = getBlockContentSchema(block.type);
 
       const result = await modelFactory.call(
         'content',
         [
           {
             role: 'system',
-            content: `You are a content generator for AEM Edge Delivery Services (EDS). Generate HTML for a "${block.type}" block.
+            content: `You are a content generator. Generate JSON content for a "${block.type}" block.
 
-EDS block structure rules:
-- A block is: <div class="block-name"><div>...rows...</div></div>
-- Each row is a direct child <div> of the block. Each cell is a direct child <div> of a row.
-- Do NOT add extra classes inside the block (no "hero-image", "cards-card-body", etc.) — AEM's decorate() adds those at runtime.
-- Variants are space-separated classes on the outer div: <div class="cards horizontal">.
-- Images: use <picture><img src="..." alt="..."></picture>.
-- Section breaks between blocks: <hr>.
-- Section metadata: <div class="section-metadata"><div><div>key</div><div>value</div></div></div> placed BEFORE the <hr>.
-- Buttons/CTAs: plain <p><a href="#">Link text</a></p> — do NOT add "button" classes.
+Return ONLY valid JSON matching this schema — no markdown fences, no explanations, no extra text:
 
-Structure for "${block.type}":
-${structureHint}
-${brandGuidance}
-Respond with ONLY the HTML block. No markdown fences, no explanations.`,
+${contentSchema}
+${brandGuidance}`,
           },
           {
             role: 'user',
-            content: `Generate a "${block.type}" block for: "${query}"
-Reason: ${block.reason}
+            content: `Generate content for a "${block.type}" block.
+Topic: "${query}"
+Reason this block was chosen: ${block.reason}
 Context: ${ragContext}`,
           },
         ],
         env,
       );
 
+      // Parse JSON from LLM response
+      let content: BlockContent;
+      try {
+        const raw = result.content.trim();
+        // Strip markdown code fences if the LLM added them
+        const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+        content = JSON.parse(cleaned);
+      } catch {
+        // Fallback: if JSON parsing fails, wrap raw text as a generic block
+        content = { headline: query, text: result.content } as unknown as BlockContent;
+      }
+
+      // Build deterministic EDS HTML from the parsed content
+      const html = buildBlockHTML(block.type, content);
+
       write({
         event: 'block-content',
-        data: { html: result.content, sectionStyle: block.sectionStyle, index: idx },
+        data: { html, sectionStyle: block.sectionStyle, index: idx },
       });
 
-      return result.content;
+      return { blockType: block.type, html, sectionStyle: block.sectionStyle };
     });
 
     const results = await Promise.all(promises);
-    htmlBlocks.push(...results);
+    generatedBlocks.push(...results);
   }
 
-  return htmlBlocks;
+  return generatedBlocks;
 }
