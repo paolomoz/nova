@@ -1,4 +1,5 @@
 import type { DAAdminClient } from '@nova/da-client';
+import { tryBuildFromJSON } from '@nova/shared-types';
 
 export interface ToolContext {
   daClient: DAAdminClient;
@@ -50,24 +51,30 @@ export function getToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'create_page',
-      description: `Create a new page with HTML content using EDS block markup.
+      description: `Create a new page. Provide content as a JSON string describing the blocks.
 
-EDS block structure rules:
-- A block is: <div class="block-name"><div>...rows...</div></div>
-- Each row is a direct child <div> of the block. Each cell is a direct child <div> of a row.
-- Columns: ONE row with N cells (not N rows with 1 cell). Example: <div class="columns"><div><div>Col1</div><div>Col2</div></div></div>
-- Cards: N rows, each row is one card. Each card row has cells (e.g. image cell + text cell). Example: <div class="cards"><div><div><picture><img></picture></div><div><h3>Title</h3><p>Text</p></div></div></div>
-- Accordion: N rows, each row has a question cell + answer cell. Example: <div class="accordion"><div><div><h3>Q?</h3></div><div><p>Answer</p></div></div></div>
-- Tabs: N rows, each row has a label cell + content cell.
-- Hero: 1 row with image cell + text cell.
-- Images: ALWAYS use the generate_image tool to create real images. Call generate_image with a descriptive prompt, then use the returned URL in <picture><img src="RETURNED_URL" alt="descriptive alt text"></picture>. Do NOT use placehold.co — always generate real images.
-- Section breaks: <hr>. Section metadata: <div class="section-metadata"><div><div>key</div><div>value</div></div></div> placed BEFORE the <hr>.
-- Variants are space-separated classes: <div class="cards horizontal">.`,
+The content parameter MUST be a JSON string with this structure:
+{
+  "title": "Page Title",
+  "blocks": [
+    { "type": "hero", "content": { "headline": "...", "subheadline": "...", "ctaText": "...", "ctaUrl": "...", "imageUrl": "/media/generated/hero.jpg", "imageAlt": "..." } },
+    { "type": "cards", "sectionStyle": "highlight", "content": { "cards": [{ "title": "...", "description": "...", "imageUrl": "/media/generated/card1.jpg", "imageAlt": "...", "linkText": "...", "linkUrl": "..." }] } },
+    { "type": "columns", "content": { "columns": [{ "headline": "...", "text": "..." }] } },
+    { "type": "accordion", "content": { "items": [{ "question": "...", "answer": "..." }] } },
+    { "type": "tabs", "content": { "tabs": [{ "label": "...", "content": "..." }] } },
+    { "type": "table", "content": { "headers": ["Col1", "Col2"], "rows": [["a", "b"]] } },
+    { "type": "testimonials", "content": { "testimonials": [{ "quote": "...", "author": "...", "role": "..." }] } },
+    { "type": "cta", "content": { "headline": "...", "text": "...", "buttonText": "...", "buttonUrl": "..." } }
+  ]
+}
+
+Images: ALWAYS use generate_image tool FIRST to create real images, then use the returned URL as imageUrl. Do NOT use placehold.co.
+The system will convert this JSON into proper EDS block HTML automatically.`,
       input_schema: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Page path (e.g. "/en/test")' },
-          content: { type: 'string', description: 'HTML content for the page using EDS block markup' },
+          content: { type: 'string', description: 'JSON string with title and blocks array (see description for schema)' },
         },
         required: ['path', 'content'],
       },
@@ -278,12 +285,14 @@ export async function executeTool(
     }
     case 'create_page': {
       const pagePath = input.path.endsWith('.html') ? input.path : `${input.path}.html`;
-      await daClient.putSource(pagePath, input.content);
+      // Try to parse as JSON blocks and build proper EDS HTML; fall back to raw HTML
+      const htmlContent = tryBuildFromJSON(input.content) || input.content;
+      await daClient.putSource(pagePath, htmlContent);
       await logAction(db, userId, projectId, 'create_page', `AI created page at ${input.path}`, { path: input.path });
       // Trigger embed queue
       try {
         if (ctx.embedQueue) {
-          await ctx.embedQueue.send({ type: 'content', projectId, path: input.path, html: input.content });
+          await ctx.embedQueue.send({ type: 'content', projectId, path: input.path, html: htmlContent });
         }
       } catch {
         // Non-fatal

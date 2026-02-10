@@ -132,6 +132,7 @@ export interface HeroContent {
   subheadline?: string;
   ctaText?: string;
   ctaUrl?: string;
+  imageUrl?: string;
   imageAlt?: string;
 }
 
@@ -139,6 +140,7 @@ export interface CardsContent {
   cards: Array<{
     title: string;
     description: string;
+    imageUrl?: string;
     imageAlt?: string;
     linkText?: string;
     linkUrl?: string;
