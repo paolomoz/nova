@@ -21,11 +21,14 @@ import orgRoutes from './routes/org.js';
 
 const app = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
-// CORS
+// CORS — in dev mode accept any localhost port
 app.use(
   '/api/*',
   cors({
-    origin: (origin, c) => c.env.CORS_ORIGIN || origin,
+    origin: (origin, c) => {
+      if (c.env.DEV_MODE === 'true' && origin?.startsWith('http://localhost')) return origin;
+      return c.env.CORS_ORIGIN || origin;
+    },
     credentials: true,
   }),
 );

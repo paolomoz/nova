@@ -113,7 +113,7 @@ ai.post('/:projectId/stream', async (c) => {
   return new Response(readable, {
     headers: {
       ...SSE_HEADERS,
-      'Access-Control-Allow-Origin': c.env.CORS_ORIGIN || c.req.header('origin') || '*',
+      'Access-Control-Allow-Origin': (c.env.DEV_MODE === 'true' && c.req.header('origin')?.startsWith('http://localhost')) ? c.req.header('origin')! : (c.env.CORS_ORIGIN || c.req.header('origin') || '*'),
       'Access-Control-Allow-Credentials': 'true',
     },
   });

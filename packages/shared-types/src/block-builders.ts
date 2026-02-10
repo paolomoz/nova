@@ -175,17 +175,17 @@ export function buildEDSHTML(blocks: EDSBlock[], title: string, query: string): 
   const sections = blocks.map((block) => {
     let sectionMetadata = '';
     if (block.sectionStyle && block.sectionStyle !== 'default') {
-      sectionMetadata = `\n<div class="section-metadata">
-  <div>
-    <div>style</div>
-    <div>${escapeHTML(block.sectionStyle)}</div>
-  </div>
-</div>`;
+      sectionMetadata = `\n      <div class="section-metadata">
+        <div>
+          <div>style</div>
+          <div>${escapeHTML(block.sectionStyle)}</div>
+        </div>
+      </div>`;
     }
 
-    return `<div>
-${block.html}${sectionMetadata}
-</div>`;
+    return `    <div>
+      ${block.html}${sectionMetadata}
+    </div>`;
   }).join('\n');
 
   return `<!DOCTYPE html>
