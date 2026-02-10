@@ -278,70 +278,220 @@ content.delete('/:projectId/annotation', async (c) => {
 
 /** GET /api/content/:projectId/templates — page templates */
 content.get('/:projectId/templates', async (c) => {
+  // Templates use proper EDS block structure:
+  // - Full <!DOCTYPE html> document with <header>, <main>, <footer>
+  // - Each block wrapped in a section <div> (classless wrapper)
+  // - Block div with class name inside the section wrapper
+  // - NO <hr> between sections
   const templates = [
     {
       id: 'blank',
       name: 'Blank Page',
       description: 'Empty page with just a heading',
-      html: '<h1>New Page</h1>\n<p>Start writing your content here.</p>',
+      html: `<!DOCTYPE html>
+<html>
+<head><title>New Page</title><meta name="description" content=""></head>
+<body>
+  <header></header>
+  <main>
+    <div>
+      <h1>New Page</h1>
+      <p>Start writing your content here.</p>
+    </div>
+  </main>
+  <footer></footer>
+</body>
+</html>`,
     },
     {
       id: 'hero-cards',
       name: 'Hero + Cards',
       description: 'Hero section followed by a card grid',
-      html: `<h1>Page Title</h1>
-<p>Hero description text goes here.</p>
-<p><a href="#">Get Started</a></p>
-<div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>
-<hr>
-<div class="cards">
-  <div><div><picture><img src="/media/placeholder.png" alt="Card one image"></picture></div><div><h3>Card One</h3><p>Description for card one.</p></div></div>
-  <div><div><picture><img src="/media/placeholder.png" alt="Card two image"></picture></div><div><h3>Card Two</h3><p>Description for card two.</p></div></div>
-  <div><div><picture><img src="/media/placeholder.png" alt="Card three image"></picture></div><div><h3>Card Three</h3><p>Description for card three.</p></div></div>
-</div>`,
+      html: `<!DOCTYPE html>
+<html>
+<head><title>Page Title</title><meta name="description" content=""></head>
+<body>
+  <header></header>
+  <main>
+    <div>
+      <div class="hero">
+        <div>
+          <div>
+            <picture><img src="/media/placeholder.png" alt="Hero image" loading="lazy"></picture>
+          </div>
+          <div>
+            <h1>Page Title</h1>
+            <p>Hero description text goes here.</p>
+            <p><a href="#">Get Started</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="section-metadata">
+        <div>
+          <div>style</div>
+          <div>highlight</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="cards">
+        <div>
+          <div>
+            <picture><img src="/media/placeholder.png" alt="Card one image" loading="lazy"></picture>
+          </div>
+          <div>
+            <p><strong>Card One</strong></p>
+            <p>Description for card one.</p>
+          </div>
+        </div>
+        <div>
+          <div>
+            <picture><img src="/media/placeholder.png" alt="Card two image" loading="lazy"></picture>
+          </div>
+          <div>
+            <p><strong>Card Two</strong></p>
+            <p>Description for card two.</p>
+          </div>
+        </div>
+        <div>
+          <div>
+            <picture><img src="/media/placeholder.png" alt="Card three image" loading="lazy"></picture>
+          </div>
+          <div>
+            <p><strong>Card Three</strong></p>
+            <p>Description for card three.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer></footer>
+</body>
+</html>`,
     },
     {
       id: 'landing',
       name: 'Landing Page',
       description: 'Full landing page with hero, features, and CTA',
-      html: `<h1>Welcome to Our Product</h1>
-<p>A compelling tagline that explains the value proposition.</p>
-<p><a href="#">Learn More</a></p>
-<div class="section-metadata"><div><div>style</div><div>highlight</div></div></div>
-<hr>
-<div class="columns">
-  <div><div><h3>Feature One</h3><p>Explain this great feature.</p></div><div><h3>Feature Two</h3><p>Explain another great feature.</p></div><div><h3>Feature Three</h3><p>And one more for good measure.</p></div></div>
-</div>
-<hr>
-<h2>Ready to get started?</h2>
-<p>Join thousands of happy customers today.</p>
-<p><a href="#">Sign Up Free</a></p>`,
+      html: `<!DOCTYPE html>
+<html>
+<head><title>Welcome to Our Product</title><meta name="description" content=""></head>
+<body>
+  <header></header>
+  <main>
+    <div>
+      <div class="hero">
+        <div>
+          <div>
+            <picture><img src="/media/placeholder.png" alt="Product hero" loading="lazy"></picture>
+          </div>
+          <div>
+            <h1>Welcome to Our Product</h1>
+            <p>A compelling tagline that explains the value proposition.</p>
+            <p><a href="#">Learn More</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="section-metadata">
+        <div>
+          <div>style</div>
+          <div>highlight</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="columns">
+        <div>
+          <div>
+            <h3>Feature One</h3>
+            <p>Explain this great feature.</p>
+          </div>
+          <div>
+            <h3>Feature Two</h3>
+            <p>Explain another great feature.</p>
+          </div>
+          <div>
+            <h3>Feature Three</h3>
+            <p>And one more for good measure.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="cta">
+        <div>
+          <div>
+            <h2>Ready to get started?</h2>
+            <p>Join thousands of happy customers today.</p>
+            <p><a href="#">Sign Up Free</a></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer></footer>
+</body>
+</html>`,
     },
     {
       id: 'article',
       name: 'Article / Blog Post',
       description: 'Long-form content with heading and body',
-      html: `<h1>Article Title</h1>
-<p><em>Published on January 1, 2026</em></p>
-<h2>Introduction</h2>
-<p>Start your article here with an engaging introduction.</p>
-<h2>Main Section</h2>
-<p>Continue with your main content.</p>
-<h2>Conclusion</h2>
-<p>Wrap up with key takeaways.</p>`,
+      html: `<!DOCTYPE html>
+<html>
+<head><title>Article Title</title><meta name="description" content=""></head>
+<body>
+  <header></header>
+  <main>
+    <div>
+      <h1>Article Title</h1>
+      <p><em>Published on January 1, 2026</em></p>
+      <h2>Introduction</h2>
+      <p>Start your article here with an engaging introduction.</p>
+      <h2>Main Section</h2>
+      <p>Continue with your main content.</p>
+      <h2>Conclusion</h2>
+      <p>Wrap up with key takeaways.</p>
+    </div>
+  </main>
+  <footer></footer>
+</body>
+</html>`,
     },
     {
       id: 'faq',
       name: 'FAQ Page',
       description: 'Frequently asked questions with accordion',
-      html: `<h1>Frequently Asked Questions</h1>
-<p>Find answers to common questions below.</p>
-<hr>
-<div class="accordion">
-  <div><div><h3>Question one?</h3></div><div><p>Answer to question one goes here.</p></div></div>
-  <div><div><h3>Question two?</h3></div><div><p>Answer to question two goes here.</p></div></div>
-  <div><div><h3>Question three?</h3></div><div><p>Answer to question three goes here.</p></div></div>
-</div>`,
+      html: `<!DOCTYPE html>
+<html>
+<head><title>Frequently Asked Questions</title><meta name="description" content=""></head>
+<body>
+  <header></header>
+  <main>
+    <div>
+      <h1>Frequently Asked Questions</h1>
+      <p>Find answers to common questions below.</p>
+    </div>
+    <div>
+      <div class="accordion">
+        <div>
+          <div><h3>Question one?</h3></div>
+          <div><p>Answer to question one goes here.</p></div>
+        </div>
+        <div>
+          <div><h3>Question two?</h3></div>
+          <div><p>Answer to question two goes here.</p></div>
+        </div>
+        <div>
+          <div><h3>Question three?</h3></div>
+          <div><p>Answer to question three goes here.</p></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer></footer>
+</body>
+</html>`,
     },
   ];
 
