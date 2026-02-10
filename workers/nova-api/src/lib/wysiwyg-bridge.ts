@@ -226,106 +226,88 @@ function buildBridgeScript(sourceHtml: string): string {
     });
   }
 
-  // --- Content extraction: patch text edits into source HTML ---
-  // Strategy: collect all text-bearing elements from source, find their
-  // original text, then search the live DOM for the matching element
-  // (by tag + original text) and replace with the live text.
+  // --- Content extraction: grab live DOM and strip AEM decoration ---
+  // Strategy: clone main's innerHTML, remove AEM-added decoration artifacts,
+  // and convert section wrapper divs back to <hr> separators.
   function extractContent() {
     var main = document.querySelector('main');
     if (!main) return window.__NOVA_SOURCE_HTML__;
 
-    var parser = new DOMParser();
-    var sourceDoc = parser.parseFromString(window.__NOVA_SOURCE_HTML__, 'text/html');
-    var sourceMain = sourceDoc.querySelector('main') || sourceDoc.body;
+    // Clone main so we can modify without affecting the live page
+    var clone = main.cloneNode(true);
 
-    // Build a map of original text -> live text for text-bearing elements
-    var textTags = ['h1','h2','h3','h4','h5','h6','p','li','td','th','a','strong','em','span','blockquote','figcaption','label','dt','dd'];
+    // Remove AEM decoration artifacts
+    // 1. Remove data-block-name, data-block-status, data-section-status attributes
+    clone.querySelectorAll('[data-block-name]').forEach(function(el) {
+      el.removeAttribute('data-block-name');
+      el.removeAttribute('data-block-status');
+    });
+    clone.querySelectorAll('[data-section-status]').forEach(function(el) {
+      el.removeAttribute('data-section-status');
+    });
 
-    // Collect all source text elements with their original text
-    var sourceEls = [];
-    textTags.forEach(function(tag) {
-      var els = sourceMain.querySelectorAll(tag);
-      for (var i = 0; i < els.length; i++) {
-        var el = els[i];
-        // Only leaf-level text (skip elements that contain other text-bearing elements)
-        var hasChildTextEl = false;
-        for (var j = 0; j < textTags.length; j++) {
-          if (el.querySelector(textTags[j])) { hasChildTextEl = true; break; }
-        }
-        if (!hasChildTextEl && el.textContent.trim()) {
-          sourceEls.push({ el: el, tag: tag, originalText: el.textContent });
-        }
+    // 2. Remove AEM-added wrapper divs around blocks
+    // AEM wraps blocks like: <div class="hero-wrapper"><div class="hero block" data-block-name="hero">...</div></div>
+    // We want to keep the inner block div (with the original class name) and remove the wrapper
+    clone.querySelectorAll('[class$="-wrapper"]').forEach(function(wrapper) {
+      var blockDiv = wrapper.querySelector('[class]');
+      if (blockDiv && wrapper.parentNode) {
+        // Clean block div attributes
+        blockDiv.removeAttribute('data-block-name');
+        blockDiv.removeAttribute('data-block-status');
+        // Remove AEM-added "block" class, keep original class name
+        var classes = blockDiv.className.split(/\s+/).filter(function(c) {
+          return c !== 'block' && !c.endsWith('-wrapper');
+        });
+        blockDiv.className = classes.join(' ');
+        wrapper.parentNode.replaceChild(blockDiv, wrapper);
       }
     });
 
-    // For each source text element, find the matching live element and patch
-    sourceEls.forEach(function(entry) {
-      // Find in live DOM: same tag with matching original text
-      var liveEls = main.querySelectorAll(entry.tag);
-      var matched = null;
-      for (var i = 0; i < liveEls.length; i++) {
-        // Deep search: AEM decorates blocks, so the element may be deeply nested
-        // Match by original text content
-        if (liveEls[i].textContent.trim() === entry.originalText.trim()) {
-          matched = liveEls[i];
-          break;
-        }
-      }
-
-      // If no exact match, check if the live element's text changed (edited)
-      if (!matched) {
-        // Look for elements of the same tag that DON'T match any source text
-        // This handles the case where text was edited
-        var allSourceTexts = sourceEls.map(function(e) { return e.originalText.trim(); });
-        for (var i = 0; i < liveEls.length; i++) {
-          var liveText = liveEls[i].textContent.trim();
-          if (liveText && allSourceTexts.indexOf(liveText) === -1) {
-            // This live element has text not in source — likely an edit.
-            // Try to match by position: count same-tag elements before it
-            var livePos = Array.from(main.querySelectorAll(entry.tag)).indexOf(liveEls[i]);
-            var sourcePos = Array.from(sourceMain.querySelectorAll(entry.tag)).indexOf(entry.el);
-            if (livePos === sourcePos) {
-              matched = liveEls[i];
-              break;
-            }
-          }
-        }
-      }
-
-      if (matched && matched.textContent !== entry.originalText) {
-        // Patch: update the source element's text content
-        // Preserve child HTML structure if possible (e.g. <a>, <strong>)
-        if (entry.el.children.length === 0) {
-          entry.el.textContent = matched.textContent;
-        } else {
-          // Has child elements — do a careful text-only patch on text nodes
-          patchDirectTextNodes(entry.el, matched);
-        }
+    // 3. Remove elements AEM added (icons container, button containers, etc.)
+    clone.querySelectorAll('.icon, .section-metadata').forEach(function(el) {
+      // Keep section-metadata blocks (they're part of DA source)
+      // Only remove if it was added by AEM decoration
+      if (el.classList.contains('icon') && el.tagName === 'SPAN') {
+        // AEM wraps icon references in <span class="icon icon-xxx"><img>...</span>
+        // Keep as-is — these are part of the content
       }
     });
 
-    return sourceMain.innerHTML;
-  }
+    // 4. Remove AEM button wrappers: <div class="button-container"><a class="button">...</a></div>
+    // Convert back to plain <p><a>...</a></p>
+    clone.querySelectorAll('.button-container').forEach(function(container) {
+      var link = container.querySelector('a');
+      if (link && container.parentNode) {
+        link.classList.remove('button', 'primary', 'secondary');
+        if (link.className.trim() === '') link.removeAttribute('class');
+        var p = document.createElement('p');
+        p.appendChild(link.cloneNode(true));
+        container.parentNode.replaceChild(p, container);
+      }
+    });
 
-  // Patch only direct text nodes within an element
-  function patchDirectTextNodes(sourceEl, liveEl) {
-    var sourceTexts = [];
-    var liveTexts = [];
-    sourceEl.childNodes.forEach(function(n) { if (n.nodeType === Node.TEXT_NODE) sourceTexts.push(n); });
-    liveEl.childNodes.forEach(function(n) { if (n.nodeType === Node.TEXT_NODE) liveTexts.push(n); });
-    for (var i = 0; i < sourceTexts.length && i < liveTexts.length; i++) {
-      if (sourceTexts[i].textContent !== liveTexts[i].textContent) {
-        sourceTexts[i].textContent = liveTexts[i].textContent;
-      }
+    // 5. Remove picture/source wrappers AEM adds around images
+    // AEM's createOptimizedPicture wraps <img> in <picture><source>...<img></picture>
+    // Keep the picture element but remove AEM-added width/format params from src
+    // (Actually, picture elements are part of source too — keep them as-is)
+
+    // 6. Convert section divs back to flat content with <hr> separators
+    // AEM structure: <main> > <div class="section ..."> > content
+    // DA source format: content <hr> content <hr> content
+    var sections = clone.querySelectorAll(':scope > div');
+    var result = '';
+    for (var i = 0; i < sections.length; i++) {
+      if (i > 0) result += '<hr>';
+      result += sections[i].innerHTML;
     }
-    // Also recurse into child elements
-    var sourceChildren = Array.from(sourceEl.children);
-    var liveChildren = Array.from(liveEl.children);
-    for (var i = 0; i < sourceChildren.length && i < liveChildren.length; i++) {
-      if (sourceChildren[i].tagName === liveChildren[i].tagName) {
-        patchDirectTextNodes(sourceChildren[i], liveChildren[i]);
-      }
+
+    // If no section divs found, just use innerHTML directly
+    if (sections.length === 0) {
+      result = clone.innerHTML;
     }
+
+    return result;
   }
 
   // --- Message handler (parent → iframe) ---
