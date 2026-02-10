@@ -48,7 +48,7 @@ local_protocol = "http"
 name = "nova-api"
 
 [env.production.vars]
-GITHUB_CLIENT_ID = "Ov23lixzgGtiLVFd55kT"
+GITHUB_CLIENT_ID = "Ov23lis5lGXO8so1nyrn"
 CORS_ORIGIN = "https://nova-cms-852.pages.dev"
 DEV_MODE = "false"
 VOYAGE_MODEL = "voyage-3"
