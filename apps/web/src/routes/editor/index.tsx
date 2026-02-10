@@ -275,14 +275,16 @@ export function EditorPage() {
     setDirty(false);
   }, [editorMode, dirty, handleSave, projectId, pagePath, editor]);
 
-  // Preview — triggers AEM preview and opens the .page URL in a new tab
+  // Preview — saves, warms AEM cache, opens Nova-hosted preview in a new tab
   const handlePreview = async () => {
     if (!projectId || !pagePath) return;
     if (dirty) await handleSave();
     try {
-      const result = await api.previewPage(projectId, pagePath);
-      window.open(result.url, '_blank');
-      // Refresh WYSIWYG iframe so visual editor reflects the latest preview
+      // Warm AEM cache in the background (don't block on it)
+      api.previewPage(projectId, pagePath).catch(() => {});
+      // Open Nova-hosted preview which has self-render fallback
+      const previewUrl = `/api/content/${projectId}/preview-page?path=${encodeURIComponent(pagePath)}`;
+      window.open(previewUrl, '_blank');
       setWysiwygKey((k) => k + 1);
     } catch {
       // Handle error

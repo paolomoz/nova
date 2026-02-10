@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, SessionData } from '../lib/types.js';
 import { getDAClientForProject } from '../services/da-client.js';
 import { getBlockLibrary } from '../lib/blocks.js';
-import { buildWysiwygPage, buildSelfRenderedPage, buildFallbackPage } from '../lib/wysiwyg-bridge.js';
+import { buildWysiwygPage, buildSelfRenderedPage, buildStandalonePreviewPage, buildStandalonePreviewFromAem, buildFallbackPage } from '../lib/wysiwyg-bridge.js';
 
 const content = new Hono<{ Bindings: Env; Variables: { session: SessionData } }>();
 
@@ -598,6 +598,65 @@ content.get('/:projectId/wysiwyg', async (c) => {
   }
 
   // Edge case: neither available
+  return c.html(buildFallbackPage('Could not load page content. Try refreshing.'), 200);
+});
+
+/** GET /api/content/:projectId/preview-page — standalone preview (no editor chrome) */
+content.get('/:projectId/preview-page', async (c) => {
+  const projectId = c.req.param('projectId');
+  const path = c.req.query('path');
+  if (!path) return c.html(buildFallbackPage('No page path specified.'), 400);
+
+  const project = await c.env.DB.prepare(
+    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
+  )
+    .bind(projectId)
+    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
+  if (!project) return c.html(buildFallbackPage('Project not found.'), 404);
+
+  const org = project.github_org || project.da_org;
+  const site = project.github_repo || project.da_repo;
+  const aemBaseUrl = `https://main--${site}--${org}.aem.page`;
+  let aemPath = path.replace(/\.html$/, '');
+  if (aemPath.endsWith('/index')) aemPath = aemPath.slice(0, -5);
+  const aemPageUrl = `${aemBaseUrl}${aemPath}`;
+  const proxyBasePath = `/api/content/${projectId}/aem-proxy`;
+
+  const sourcePath = path.endsWith('.html') ? path : `${path}.html`;
+
+  const [aemResult, daResult] = await Promise.allSettled([
+    (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const resp = await fetch(aemPageUrl, { signal: controller.signal });
+        if (!resp.ok) throw new Error(`AEM ${resp.status}`);
+        return await resp.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    })(),
+    (async () => {
+      const client = await getDAClientForProject(c.env, projectId);
+      const source = await client.getSource(sourcePath);
+      return source.content || '';
+    })(),
+  ]);
+
+  const aemHtml = aemResult.status === 'fulfilled' ? aemResult.value : null;
+  const sourceHtml = daResult.status === 'fulfilled' ? daResult.value : null;
+
+  const aemMainContent = aemHtml?.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1]?.replace(/<[^>]*>/g, '').trim();
+  const aemHasContent = aemMainContent && aemMainContent.length > 20;
+
+  if (aemHtml && aemHasContent) {
+    return c.html(buildStandalonePreviewFromAem(aemHtml, proxyBasePath, aemBaseUrl));
+  }
+
+  if (sourceHtml) {
+    return c.html(buildStandalonePreviewPage(sourceHtml, proxyBasePath));
+  }
+
   return c.html(buildFallbackPage('Could not load page content. Try refreshing.'), 200);
 });
 

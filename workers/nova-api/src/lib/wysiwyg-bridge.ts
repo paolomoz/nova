@@ -359,6 +359,26 @@ function buildBridgeScript(sourceHtml: string): string {
 }
 
 /**
+ * Extract the inner content from DA source HTML.
+ *
+ * DA source may include full page wrappers (`<html>`, `<body>`, `<main>`).
+ * This extracts just the content inside `<main>` (or `<body>` if no `<main>`),
+ * so it can be safely embedded in our own page template without nesting.
+ */
+function extractMainContent(html: string): string {
+  // Try to extract content inside <main>
+  const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+  if (mainMatch) return mainMatch[1].trim();
+
+  // Try to extract content inside <body>
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) return bodyMatch[1].trim();
+
+  // No wrappers — return as-is
+  return html;
+}
+
+/**
  * Wrap DA source HTML into section divs, mimicking AEM's server-side rendering.
  *
  * DA source uses `<hr>` as section dividers. AEM's server wraps content between
@@ -387,8 +407,10 @@ function wrapInSectionDivs(html: string): string {
  * @param proxyBasePath - Same-origin proxy path (e.g. /api/content/proj-x/aem-proxy)
  */
 export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string): string {
+  // Extract inner content (strip <html>/<body>/<main> wrappers from DA source)
+  const innerContent = extractMainContent(sourceHtml);
   // Wrap DA source into section divs (mimics AEM server-side rendering)
-  const sectionWrapped = wrapInSectionDivs(sourceHtml);
+  const sectionWrapped = wrapInSectionDivs(innerContent);
   // Rewrite root-relative URLs in the source HTML to go through the proxy
   const rewrittenSource = rewriteRootRelativeUrls(sectionWrapped, proxyBasePath);
 
@@ -415,6 +437,87 @@ export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string)
   ${bridgeScript}
 </body>
 </html>`;
+}
+
+/**
+ * Build a standalone preview page from DA source HTML + AEM site-level CSS/JS.
+ *
+ * Same as `buildSelfRenderedPage` but WITHOUT the editing bridge script.
+ * Used for the "Preview" button that opens a new tab — read-only, no editing.
+ *
+ * @param sourceHtml - The DA source HTML (pre-decoration)
+ * @param proxyBasePath - Same-origin proxy path (e.g. /api/content/proj-x/aem-proxy)
+ */
+export function buildStandalonePreviewPage(sourceHtml: string, proxyBasePath: string): string {
+  const innerContent = extractMainContent(sourceHtml);
+  const sectionWrapped = wrapInSectionDivs(innerContent);
+  const rewrittenSource = rewriteRootRelativeUrls(sectionWrapped, proxyBasePath);
+  const fetchInterceptor = buildFetchInterceptor(proxyBasePath);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <base href="${proxyBasePath}/">
+  <script src="${proxyBasePath}/scripts/aem.js" type="module"></script>
+  <script src="${proxyBasePath}/scripts/scripts.js" type="module"></script>
+  <link rel="stylesheet" href="${proxyBasePath}/styles/styles.css">
+  <style>
+    body { display: block !important; visibility: visible !important; }
+    header, footer { display: block; }
+  </style>
+  ${fetchInterceptor}
+</head>
+<body class="appear">
+  <header></header>
+  <main>${rewrittenSource}</main>
+  <footer></footer>
+</body>
+</html>`;
+}
+
+/**
+ * Build a standalone preview from an AEM-rendered page (no bridge script).
+ *
+ * @param renderedHtml - The fully rendered HTML from AEM Edge Delivery
+ * @param proxyBasePath - Same-origin proxy path
+ * @param aemBaseUrl - The AEM base URL
+ */
+export function buildStandalonePreviewFromAem(
+  renderedHtml: string,
+  proxyBasePath: string,
+  aemBaseUrl: string,
+): string {
+  let html = renderedHtml;
+
+  html = html.replace(/<body([^>]*)>/i, (_match, attrs: string) => {
+    if (/class=["']/.test(attrs)) {
+      return `<body${attrs.replace(/class=["']([^"']*)["']/, 'class="$1 appear"')}>`;
+    }
+    return `<body${attrs} class="appear">`;
+  });
+  html = html.replace(/\s+nonce=["'][^"']*["']/gi, '');
+
+  html = rewriteRootRelativeUrls(html, proxyBasePath);
+
+  const baseTag = `<base href="${proxyBasePath}/">`;
+  if (html.includes('<head>')) {
+    html = html.replace('<head>', `<head>\n${baseTag}`);
+  } else if (html.includes('<HEAD>')) {
+    html = html.replace('<HEAD>', `<HEAD>\n${baseTag}`);
+  }
+
+  const overrideStyles = `<style>body { display: block !important; visibility: visible !important; } header, footer { display: block; }</style>`;
+  html = html.replace('</head>', `${overrideStyles}\n</head>`);
+
+  const fetchInterceptor = buildFetchInterceptor(proxyBasePath);
+  html = html.replace('</head>', `${fetchInterceptor}\n</head>`);
+
+  html = html.replace(
+    /<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>/gi,
+    '',
+  );
+
+  return html;
 }
 
 /**
