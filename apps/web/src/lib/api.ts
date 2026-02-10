@@ -1,7 +1,7 @@
 const API_BASE = '/api';
 
 // For SSE streaming, connect directly to the worker to bypass Vite proxy buffering.
-// In production, SSE goes through the same origin; in dev, wrangler runs on :8787.
+// In production, SSE goes through the same origin via Pages Function proxy.
 const SSE_BASE = import.meta.env.DEV ? 'http://localhost:8787/api' : '/api';
 
 class ApiError extends Error {
