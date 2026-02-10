@@ -14,6 +14,8 @@ export interface OrchestratorEnv {
   DB: D1Database;
   VECTORIZE?: VectorizeIndex;
   EMBED_QUEUE?: Queue;
+  FAL_API_KEY?: string;
+  ASSETS?: R2Bucket;
 }
 
 export interface OrchestratorParams {
@@ -59,9 +61,10 @@ ${context.recentActions}`;
     systemPrompt += `\n\nValue insights:\n${context.valueInsights}`;
   }
 
-  systemPrompt += `\n\nYou have tools to list, read, create, delete, search, and analyze pages, and generate or update blocks. Use them to fulfill the user's request.
+  systemPrompt += `\n\nYou have tools to list, read, create, delete, search, and analyze pages, generate or update blocks, and generate images. Use them to fulfill the user's request.
 When creating pages, use clean HTML with EDS block markup. Use get_block_library to check available blocks.
 Use generate_block to create new EDS blocks with HTML, CSS, and JS. Use update_block to iterate on existing blocks.
+IMPORTANT: When creating pages that need images, ALWAYS call generate_image FIRST to create real AI-generated images, then use the returned URLs in the page HTML. Never use placeholder image services like placehold.co.
 Always confirm what you did after completing an action.`;
 
   const tools = getToolDefinitions();
@@ -75,6 +78,8 @@ Always confirm what you did after completing an action.`;
     voyageModel: env.VOYAGE_MODEL,
     embedQueue: env.EMBED_QUEUE,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
+    falApiKey: env.FAL_API_KEY,
+    assetsBucket: env.ASSETS,
   };
 
   const messages: Array<Record<string, unknown>> = [
@@ -201,6 +206,8 @@ export async function orchestrateWithPlan(
     voyageModel: env.VOYAGE_MODEL,
     embedQueue: env.EMBED_QUEUE,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
+    falApiKey: env.FAL_API_KEY,
+    assetsBucket: env.ASSETS,
   };
 
   const stepResults = await executePlan(plan, toolCtx, env, onProgress);

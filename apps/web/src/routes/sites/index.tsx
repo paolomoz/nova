@@ -142,7 +142,7 @@ export function SitesPage() {
     setCurrentPath(path);
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     if (viewMode === 'list') loadItems(currentPath);
     else if (viewMode === 'column') {
       setColumnItems({});
@@ -151,7 +151,14 @@ export function SitesPage() {
       setTreeItems({});
       for (const p of expandedFolders) loadTreeChildren(p);
     }
-  };
+  }, [viewMode, currentPath, columnPaths, expandedFolders, loadItems, loadColumnItems, loadTreeChildren]);
+
+  // Refresh when AI creates a page
+  useEffect(() => {
+    const handler = () => handleRefresh();
+    window.addEventListener('nova:content-changed', handler);
+    return () => window.removeEventListener('nova:content-changed', handler);
+  }, [handleRefresh]);
 
   const toggleSort = () => {
     if (sortField === 'name' && sortOrder === 'asc') {

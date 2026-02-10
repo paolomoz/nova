@@ -255,6 +255,8 @@ export const useAI = create<AIState>((set, get) => ({
                 { label: 'Stay here', action: 'dismiss' },
               ],
             });
+            // Notify sites browser to refresh its listing
+            window.dispatchEvent(new CustomEvent('nova:content-changed', { detail: { path: createdPagePath } }));
           }
           // Refresh history
           api.getActionHistory(projectId).then((history) => {

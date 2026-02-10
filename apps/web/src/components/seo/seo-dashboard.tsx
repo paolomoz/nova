@@ -23,6 +23,7 @@ export function SeoDashboard() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<SeoAnalysis | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [editingMeta, setEditingMeta] = useState<SeoMetadata | null>(null);
 
   const loadPages = useCallback(async () => {
@@ -40,12 +41,15 @@ export function SeoDashboard() {
     setSelectedPath(path);
     setAnalyzing(true);
     setAnalysis(null);
+    setAnalysisError(null);
     try {
       const data = await api.analyzeSeo(projectId, path);
       setAnalysis(data.analysis);
       loadPages();
-    } catch { /* handle error */ }
-    finally { setAnalyzing(false); }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Analysis failed';
+      setAnalysisError(message);
+    } finally { setAnalyzing(false); }
   };
 
   const handleSaveMeta = async () => {
@@ -106,7 +110,7 @@ export function SeoDashboard() {
           </TabsContent>
 
           <TabsContent value="analyze" className="mt-4">
-            <AnalyzeForm projectId={projectId} onAnalyze={handleAnalyze} analyzing={analyzing} analysis={analysis} />
+            <AnalyzeForm projectId={projectId} onAnalyze={handleAnalyze} analyzing={analyzing} analysis={analysis} error={analysisError} />
           </TabsContent>
         </Tabs>
 
@@ -154,23 +158,42 @@ export function SeoDashboard() {
   );
 }
 
-function AnalyzeForm({ projectId, onAnalyze, analyzing, analysis }: {
+function AnalyzeForm({ projectId, onAnalyze, analyzing, analysis, error }: {
   projectId: string;
   onAnalyze: (path: string) => void;
   analyzing: boolean;
   analysis: SeoAnalysis | null;
+  error: string | null;
 }) {
   const [path, setPath] = useState('');
 
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
-        <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/en/about" className="flex-1" />
+        <Input
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && path && !analyzing) onAnalyze(path); }}
+          placeholder="/en/about"
+          className="flex-1"
+        />
         <Button onClick={() => onAnalyze(path)} disabled={analyzing || !path}>
           {analyzing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Search className="h-4 w-4 mr-1" />}
           Analyze
         </Button>
       </div>
+      {analyzing && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Analyzing page — this may take a moment…
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
     </div>
   );
 }

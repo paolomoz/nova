@@ -16,6 +16,8 @@ function buildOrchestratorEnv(env: Env) {
     DB: env.DB,
     VECTORIZE: env.VECTORIZE,
     EMBED_QUEUE: env.EMBED_QUEUE,
+    FAL_API_KEY: env.FAL_API_KEY,
+    ASSETS: env.ASSETS,
   };
 }
 

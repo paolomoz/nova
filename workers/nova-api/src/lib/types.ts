@@ -16,6 +16,7 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   CEREBRAS_API_KEY: string;
   VOYAGE_API_KEY: string;
+  FAL_API_KEY?: string;
   DA_CLIENT_ID: string;
   DA_CLIENT_SECRET: string;
   DA_SERVICE_TOKEN: string;

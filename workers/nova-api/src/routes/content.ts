@@ -682,20 +682,36 @@ content.get('/:projectId/aem-proxy/*', async (c) => {
 
   try {
     const aemResponse = await fetch(aemUrl);
-    if (!aemResponse.ok) {
-      return c.text(`AEM ${aemResponse.status}`, aemResponse.status as 404);
+    if (aemResponse.ok) {
+      const contentType = aemResponse.headers.get('content-type') || 'application/octet-stream';
+      const body = await aemResponse.arrayBuffer();
+
+      return new Response(body, {
+        headers: {
+          'content-type': contentType,
+          'cache-control': 'public, max-age=300',
+          'access-control-allow-origin': '*',
+        },
+      });
     }
 
-    const contentType = aemResponse.headers.get('content-type') || 'application/octet-stream';
-    const body = await aemResponse.arrayBuffer();
+    // AEM CDN returned an error — fall back to R2 for media paths
+    // (AI-generated images are uploaded to DA source + R2, but may not be on AEM CDN yet)
+    if (aemResponse.status === 404 && assetPath.startsWith('/media/') && c.env.ASSETS) {
+      const r2Key = `${projectId}${assetPath}`;
+      const object = await c.env.ASSETS.get(r2Key);
+      if (object) {
+        return new Response(object.body, {
+          headers: {
+            'content-type': object.httpMetadata?.contentType || 'application/octet-stream',
+            'cache-control': 'public, max-age=300',
+            'access-control-allow-origin': '*',
+          },
+        });
+      }
+    }
 
-    return new Response(body, {
-      headers: {
-        'content-type': contentType,
-        'cache-control': 'public, max-age=300',
-        'access-control-allow-origin': '*',
-      },
-    });
+    return c.text(`AEM ${aemResponse.status}`, aemResponse.status as 404);
   } catch {
     return c.text('Proxy error', 502);
   }

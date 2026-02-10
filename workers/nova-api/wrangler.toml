@@ -14,7 +14,7 @@ queue = "nova-embed-queue"
 binding = "EMBED_QUEUE"
 
 [[r2_buckets]]
-binding = "ASSETS_BUCKET"
+binding = "ASSETS"
 bucket_name = "nova-assets"
 
 # --- Development (default) ---
@@ -75,5 +75,5 @@ queue = "nova-embed-queue"
 binding = "EMBED_QUEUE"
 
 [[env.production.r2_buckets]]
-binding = "ASSETS_BUCKET"
+binding = "ASSETS"
 bucket_name = "nova-assets"

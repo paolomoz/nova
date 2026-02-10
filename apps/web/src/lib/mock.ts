@@ -89,8 +89,78 @@ const MOCK_ASSETS = [
   { id: 'asset-4', path: '/media/logo.svg', name: 'logo.svg', mimeType: 'image/svg+xml', size: 4200, width: 200, height: 50, altText: 'WKND logo', tags: ['logo', 'brand'], colorPalette: [], updatedAt: '2025-11-01T10:00:00Z' },
 ];
 
-const MOCK_BRAND_PROFILES = [
-  { id: 'bp-1', name: 'default', voice: { tone: 'adventurous, inspiring, warm', personality: 'An experienced outdoor guide who is passionate about nature and helping others discover adventures', dos: ['Use active voice', 'Inspire action', 'Share personal experiences'], donts: ['Use jargon', 'Be condescending', 'Overuse superlatives'] }, visual: { colors: { primary: '#E53E3E', secondary: '#2D3748', accent: '#ED8936' }, typography: { heading: 'Asar', body: 'Source Sans Pro' } }, contentRules: {}, designTokens: {}, updatedAt: '2025-12-01T10:00:00Z' },
+const MOCK_BRAND_PROFILES: Array<{
+  id: string; name: string;
+  voice: { tone: string; personality: string; dos: string[]; donts: string[] };
+  visual: { colors: Record<string, string>; typography: Record<string, string> };
+  contentRules: Record<string, unknown>; designTokens: Record<string, string>;
+  updatedAt: string;
+}> = [
+  {
+    id: 'bp-1',
+    name: 'default',
+    voice: {
+      tone: 'adventurous, inspiring, warm, authentic',
+      personality: 'An experienced outdoor guide who is passionate about nature and helping others discover life-changing adventures. Speaks from first-hand experience with genuine enthusiasm, like a trusted friend who knows every trail.',
+      dos: [
+        'Use active voice and action-oriented language',
+        'Inspire readers to get outdoors and explore',
+        'Share real stories and first-hand experiences',
+        'Address the reader directly using "you" and "your"',
+        'Include specific, practical details (trail distances, gear specs)',
+        'Celebrate all skill levels — beginner to expert',
+        'Use sensory language to paint vivid pictures of the outdoors',
+        'End with a clear call to action',
+      ],
+      donts: [
+        'Use overly technical jargon without explanation',
+        'Be condescending about experience levels',
+        'Overuse superlatives like "best ever" or "most amazing"',
+        'Make unsubstantiated safety claims',
+        'Use passive voice when active is clearer',
+        'Write walls of text without scannable headings',
+        'Ignore accessibility in language or imagery',
+        'Use fear-based marketing tactics',
+      ],
+    },
+    visual: {
+      colors: {
+        primary: '#E53E3E',
+        secondary: '#2D3748',
+        accent: '#ED8936',
+        success: '#38A169',
+        background: '#F7FAFC',
+        'text-primary': '#1A202C',
+      },
+      typography: {
+        heading: 'Asar, serif',
+        body: 'Source Sans Pro, sans-serif',
+        mono: 'Source Code Pro, monospace',
+        'scale-ratio': '1.25 (Major Third)',
+      },
+    },
+    contentRules: {
+      maxHeadingLength: 70,
+      requiredSections: ['intro', 'body', 'cta'],
+      readabilityTarget: 'Grade 8 (Flesch-Kincaid)',
+      seoMinWordCount: 300,
+      terminology: {
+        'hike': 'preferred over "walk" for trail content',
+        'adventure': 'core brand term — use liberally',
+        'gear': 'preferred over "equipment" or "products"',
+        'trail-tested': 'use for product endorsements',
+      },
+    },
+    designTokens: {
+      'spacing-base': '4px',
+      'radius-sm': '4px',
+      'radius-md': '8px',
+      'radius-lg': '16px',
+      'shadow-card': '0 1px 3px rgba(0,0,0,0.12)',
+      'max-content-width': '1200px',
+    },
+    updatedAt: new Date().toISOString(),
+  },
 ];
 
 const MOCK_SEO_PAGES = [
@@ -336,12 +406,50 @@ export function enableMockMode() {
     bulkOperation: () => mock({ ok: true, results: [{ path: '/en/index', ok: true }] }),
   });
 
-  // Brand
+  // Brand — persist to localStorage so data survives page reloads
+  const BRAND_STORAGE_KEY = 'nova_brand_profiles';
+  function loadBrandProfiles() {
+    try {
+      const stored = localStorage.getItem(BRAND_STORAGE_KEY);
+      if (stored) return JSON.parse(stored) as typeof MOCK_BRAND_PROFILES;
+    } catch { /* fall through */ }
+    // Seed from defaults on first load
+    localStorage.setItem(BRAND_STORAGE_KEY, JSON.stringify(MOCK_BRAND_PROFILES));
+    return [...MOCK_BRAND_PROFILES];
+  }
+  function saveBrandProfiles(profiles: typeof MOCK_BRAND_PROFILES) {
+    localStorage.setItem(BRAND_STORAGE_KEY, JSON.stringify(profiles));
+  }
+
   Object.assign(api, {
-    getBrandProfiles: () => mock({ profiles: MOCK_BRAND_PROFILES }),
-    getBrandProfile: () => mock({ profile: MOCK_BRAND_PROFILES[0] }),
-    saveBrandProfile: () => mock({ ok: true }),
-    deleteBrandProfile: () => mock({ ok: true }),
+    getBrandProfiles: () => mock({ profiles: loadBrandProfiles() }),
+    getBrandProfile: (_pid: string, name: string) => {
+      const profiles = loadBrandProfiles();
+      const profile = profiles.find((p) => p.name === name) || profiles[0];
+      return mock({ profile });
+    },
+    saveBrandProfile: (_pid: string, name: string, data: { voice?: object; visual?: object; contentRules?: object; designTokens?: object }) => {
+      const profiles = loadBrandProfiles();
+      const idx = profiles.findIndex((p) => p.name === name);
+      const updated = {
+        id: idx >= 0 ? profiles[idx].id : `bp-${Date.now()}`,
+        name,
+        voice: (data.voice || {}) as typeof MOCK_BRAND_PROFILES[0]['voice'],
+        visual: (data.visual || {}) as typeof MOCK_BRAND_PROFILES[0]['visual'],
+        contentRules: (data.contentRules || {}) as Record<string, unknown>,
+        designTokens: (data.designTokens || {}) as Record<string, string>,
+        updatedAt: new Date().toISOString(),
+      };
+      if (idx >= 0) profiles[idx] = updated;
+      else profiles.push(updated);
+      saveBrandProfiles(profiles);
+      return mock({ ok: true });
+    },
+    deleteBrandProfile: (_pid: string, name: string) => {
+      const profiles = loadBrandProfiles().filter((p) => p.name !== name);
+      saveBrandProfiles(profiles);
+      return mock({ ok: true });
+    },
     validateVoice: () => mock({ ok: true, validation: { score: 85, issues: [{ severity: 'warning', description: 'Slightly formal tone detected', suggestion: 'Consider more casual phrasing' }], strengths: ['Active voice used consistently', 'Good story-driven approach'], rewriteSuggestion: null } }),
     checkVisual: () => mock({ ok: true, check: { compliant: true, score: 92, issues: [], suggestions: ['Consider adding more white space'] } }),
     runBrandAudit: () => mock({ ok: true, audit: { overallScore: 88, summary: 'Brand consistency is strong across most pages', pages: [{ path: '/en/index', score: 92, issues: [], suggestions: [] }, { path: '/en/blog/adventure-awaits', score: 85, issues: ['Tone slightly informal in conclusion'], suggestions: ['Revise closing paragraph'] }], trends: ['Voice consistency improving over time'], recommendations: ['Update older product descriptions to match current voice guidelines'] } }, 1000),

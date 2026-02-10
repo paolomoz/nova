@@ -118,6 +118,25 @@ assets.get('/:projectId/file', async (c) => {
   });
 });
 
+/** GET /api/assets/:projectId/media/** — path-based asset serving (AEM-friendly, no query params) */
+assets.get('/:projectId/media/*', async (c) => {
+  const projectId = c.req.param('projectId');
+  const mediaPath = `/media/${c.req.path.split('/media/').slice(1).join('/media/')}`;
+  if (!c.env.ASSETS) return c.json({ error: 'R2 storage not configured' }, 503);
+
+  const r2Key = `${projectId}${mediaPath}`;
+  const object = await c.env.ASSETS.get(r2Key);
+
+  if (!object) return c.json({ error: 'Asset not found' }, 404);
+
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+      'Cache-Control': 'public, max-age=31536000',
+    },
+  });
+});
+
 /** PUT /api/assets/:projectId/:assetId — update asset metadata */
 assets.put('/:projectId/:assetId', async (c) => {
   const { projectId, assetId } = c.req.param();
@@ -161,16 +180,18 @@ assets.delete('/:projectId/:assetId', async (c) => {
   return c.json({ ok: true });
 });
 
-/** POST /api/assets/:projectId/generate — AI image generation */
+/** POST /api/assets/:projectId/generate — AI image generation via fal.ai FLUX.2 Pro */
 assets.post('/:projectId/generate', async (c) => {
   const projectId = c.req.param('projectId');
-  const { prompt, style } = await c.req.json<{ prompt: string; style?: string }>();
+  const session = c.get('session');
+  const { prompt, style, image_size } = await c.req.json<{ prompt: string; style?: string; image_size?: string }>();
 
   if (!prompt) return c.json({ error: 'prompt required' }, 400);
+  if (!c.env.FAL_API_KEY) return c.json({ error: 'FAL_API_KEY not configured' }, 503);
+  if (!c.env.ASSETS) return c.json({ error: 'R2 storage not configured' }, 503);
 
-  // Use Claude to refine the prompt, then describe what would be generated
-  // In production, this would call an image generation API (Gemini, DALL-E, etc.)
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Step 1: Refine prompt via Claude
+  const refineResponse = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -193,21 +214,84 @@ Respond with ONLY JSON.`,
     }),
   });
 
-  if (!response.ok) return c.json({ error: 'Failed to process prompt' }, 500);
+  if (!refineResponse.ok) return c.json({ error: 'Failed to refine prompt' }, 500);
 
-  const data = (await response.json()) as { content: Array<{ text?: string }> };
-  const text = data.content[0]?.text || '';
-  const jsonStr = text.replace(/^```json?\s*/m, '').replace(/\s*```$/m, '').trim();
-  const result = JSON.parse(jsonStr);
+  const refineData = (await refineResponse.json()) as { content: Array<{ text?: string }> };
+  const refineText = refineData.content[0]?.text || '';
+  const jsonStr = refineText.replace(/^```json?\s*/m, '').replace(/\s*```$/m, '').trim();
+  const refined = JSON.parse(jsonStr);
+
+  // Step 2: Call fal.ai FLUX.2 Pro
+  const falResponse = await fetch('https://fal.run/fal-ai/flux-pro/v1.1', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Key ${c.env.FAL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      prompt: refined.refinedPrompt || prompt,
+      image_size: image_size || 'landscape_16_9',
+      num_images: 1,
+      safety_tolerance: '2',
+      sync_mode: true,
+    }),
+  });
+
+  if (!falResponse.ok) {
+    const errText = await falResponse.text();
+    return c.json({ error: `fal.ai API error: ${falResponse.status} — ${errText}` }, 502);
+  }
+
+  const falData = (await falResponse.json()) as {
+    images: Array<{ url: string; width: number; height: number }>;
+  };
+  const generatedImage = falData.images?.[0];
+  if (!generatedImage) return c.json({ error: 'No image returned from fal.ai' }, 502);
+
+  // Step 3: Download the temporary fal.ai image
+  const imageResponse = await fetch(generatedImage.url);
+  if (!imageResponse.ok) return c.json({ error: 'Failed to download generated image' }, 502);
+  const imageBytes = await imageResponse.arrayBuffer();
+
+  // Step 4: Upload to R2
+  const filename = (refined.suggestedFileName || 'generated-image').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const r2Path = `/media/generated/${filename}.jpg`;
+  const r2Key = `${projectId}${r2Path}`;
+
+  await c.env.ASSETS.put(r2Key, imageBytes, {
+    httpMetadata: { contentType: 'image/jpeg' },
+    customMetadata: { projectId, generatedPrompt: (refined.refinedPrompt || prompt).slice(0, 500) },
+  });
+
+  // Step 5: Save metadata to D1
+  const assetId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO assets (id, project_id, path, name, mime_type, size, width, height, alt_text, tags, r2_key, created_by)
+     VALUES (?, ?, ?, ?, 'image/jpeg', ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, path) DO UPDATE SET
+       size = excluded.size, width = excluded.width, height = excluded.height,
+       alt_text = excluded.alt_text, tags = excluded.tags, r2_key = excluded.r2_key, updated_at = datetime('now')`,
+  ).bind(
+    assetId, projectId, r2Path, `${filename}.jpg`,
+    imageBytes.byteLength, generatedImage.width, generatedImage.height,
+    refined.suggestedAltText || '', JSON.stringify(refined.suggestedTags || ['ai-generated']),
+    r2Key, session.userId,
+  ).run();
+
+  const assetUrl = `/api/assets/${projectId}/file?path=${encodeURIComponent(r2Path)}`;
 
   return c.json({
     ok: true,
-    generation: {
-      refinedPrompt: result.refinedPrompt,
-      suggestedAltText: result.suggestedAltText,
-      suggestedTags: result.suggestedTags,
-      suggestedFileName: result.suggestedFileName,
-      note: 'Image generation API integration pending — prompt has been refined',
+    asset: {
+      id: assetId,
+      url: assetUrl,
+      path: r2Path,
+      name: `${filename}.jpg`,
+      mimeType: 'image/jpeg',
+      width: generatedImage.width,
+      height: generatedImage.height,
+      altText: refined.suggestedAltText || '',
+      tags: refined.suggestedTags || ['ai-generated'],
     },
   });
 });

@@ -81,13 +81,20 @@ export function buildWysiwygPage(
 function rewriteRootRelativeUrls(html: string, proxyBase: string): string {
   return html.replace(
     /((?:src|href|content|action|poster)=["'])(\/((?!\/)[^"']*))/gi,
-    `$1${proxyBase}/$3`,
+    (_match, prefix: string, _fullPath: string, path: string) => {
+      // Don't rewrite Nova API URLs — they're already routable via the Vite proxy / same origin
+      if (path.startsWith('api/')) return `${prefix}/${path}`;
+      return `${prefix}${proxyBase}/${path}`;
+    },
   ).replace(
     /(srcset=["'])([^"']+)(["'])/gi,
     (_match, prefix: string, value: string, suffix: string) => {
       const rewritten = value.replace(
         /(?:^|,\s*)(\/[^\s,]+)/g,
-        (srcsetMatch: string, url: string) => srcsetMatch.replace(url, `${proxyBase}${url}`),
+        (srcsetMatch: string, url: string) => {
+          if (url.startsWith('/api/')) return srcsetMatch;
+          return srcsetMatch.replace(url, `${proxyBase}${url}`);
+        },
       );
       return `${prefix}${rewritten}${suffix}`;
     },
@@ -105,12 +112,37 @@ function buildFetchInterceptor(proxyBase: string): string {
   return `<script>
 (function() {
   var proxyBase = ${JSON.stringify(proxyBase)};
+  var origin = window.location.origin;
+
+  // Override codeBasePath so AEM's dynamic import() and loadCSS() route through proxy.
+  // aem.js sets window.hlx.codeBasePath = '' — the frozen setter prevents that overwrite.
+  window.hlx = window.hlx || {};
+  Object.defineProperty(window.hlx, 'codeBasePath', {
+    get: function() { return proxyBase; },
+    set: function() { /* prevent AEM from resetting to empty string */ },
+    configurable: false
+  });
+
   var originalFetch = window.fetch;
   window.fetch = function(input, init) {
-    if (typeof input === 'string' && input.startsWith('/') && !input.startsWith(proxyBase)) {
-      input = proxyBase + input;
-    } else if (input instanceof Request && input.url.startsWith('/') && !input.url.startsWith(proxyBase)) {
-      input = new Request(proxyBase + input.url, input);
+    var url = typeof input === 'string' ? input : (input instanceof Request ? input.url : null);
+    if (url) {
+      var rewritten = null;
+      // Root-relative paths: /blocks/hero/hero.css → proxy path
+      // But skip /api/ paths — they're Nova API routes, not AEM assets
+      if (url.startsWith('/') && !url.startsWith(proxyBase) && !url.startsWith('/api/')) {
+        rewritten = proxyBase + url;
+      }
+      // Absolute URLs on current origin that aren't already proxied
+      else if (url.startsWith(origin + '/')) {
+        var pathname = url.slice(origin.length);
+        if (!pathname.startsWith(proxyBase) && !pathname.startsWith('/api/')) {
+          rewritten = origin + proxyBase + pathname;
+        }
+      }
+      if (rewritten !== null) {
+        input = (input instanceof Request) ? new Request(rewritten, input) : rewritten;
+      }
     }
     return originalFetch.call(this, input, init);
   };
@@ -246,21 +278,40 @@ function buildBridgeScript(sourceHtml: string): string {
       el.removeAttribute('data-section-status');
     });
 
-    // 2. Remove AEM-added wrapper divs around blocks
-    // AEM wraps blocks like: <div class="hero-wrapper"><div class="hero block" data-block-name="hero">...</div></div>
-    // We want to keep the inner block div (with the original class name) and remove the wrapper
+    // 2. Remove AEM-added wrapper divs
+    // AEM's decorateSections creates two kinds of wrappers:
+    //   a) Block wrappers: <div class="hero-wrapper"><div class="hero block">...</div></div>
+    //   b) Default content wrappers: <div class="default-content-wrapper"><p>text</p>...</div>
+    // For (a): replace wrapper with inner block div (keeping block class name)
+    // For (b): unwrap all children (promote to parent)
     clone.querySelectorAll('[class$="-wrapper"]').forEach(function(wrapper) {
-      var blockDiv = wrapper.querySelector('[class]');
-      if (blockDiv && wrapper.parentNode) {
-        // Clean block div attributes
+      if (!wrapper.parentNode) return;
+
+      // Default content wrapper: unwrap all children into parent
+      if (wrapper.classList.contains('default-content-wrapper')) {
+        while (wrapper.firstChild) {
+          wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
+        }
+        wrapper.parentNode.removeChild(wrapper);
+        return;
+      }
+
+      // Block wrapper (hero-wrapper, columns-wrapper, etc.): replace with inner block div
+      var blockDiv = wrapper.querySelector(':scope > div[class]');
+      if (blockDiv) {
         blockDiv.removeAttribute('data-block-name');
         blockDiv.removeAttribute('data-block-status');
-        // Remove AEM-added "block" class, keep original class name
-        var classes = blockDiv.className.split(/\s+/).filter(function(c) {
+        var classes = blockDiv.className.split(/\\s+/).filter(function(c) {
           return c !== 'block' && !c.endsWith('-wrapper');
         });
         blockDiv.className = classes.join(' ');
         wrapper.parentNode.replaceChild(blockDiv, wrapper);
+      } else {
+        // Unknown wrapper with no block div inside — just unwrap children
+        while (wrapper.firstChild) {
+          wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
+        }
+        wrapper.parentNode.removeChild(wrapper);
       }
     });
 
@@ -287,12 +338,56 @@ function buildBridgeScript(sourceHtml: string): string {
       }
     });
 
-    // 5. Remove picture/source wrappers AEM adds around images
-    // AEM's createOptimizedPicture wraps <img> in <picture><source>...<img></picture>
-    // Keep the picture element but remove AEM-added width/format params from src
-    // (Actually, picture elements are part of source too — keep them as-is)
+    // 5. Unwrap AEM's createOptimizedPicture: <picture><source>...<img></picture> → <img>
+    // AEM wraps plain <img> in <picture> with <source> variants. We need to reverse this
+    // so the source HTML stays clean for re-decoration on the next load.
+    clone.querySelectorAll('picture').forEach(function(picture) {
+      var img = picture.querySelector('img');
+      if (img && picture.parentNode) {
+        // Remove AEM-added attributes
+        img.removeAttribute('loading');
+        img.removeAttribute('width');
+        img.removeAttribute('height');
+        picture.parentNode.replaceChild(img, picture);
+      }
+    });
 
-    // 6. Convert section divs back to flat content with <hr> separators
+    // 6. Reverse proxy URL rewriting on all src/href attributes
+    // The bridge rewrites root-relative URLs to go through the AEM proxy (e.g.
+    // /media/foo.jpg → /api/content/proj-x/aem-proxy/media/foo.jpg).
+    // We need to strip the proxy prefix so DA source stores clean root-relative paths.
+    var baseEl = document.querySelector('base');
+    var proxyPath = '';
+    if (baseEl && baseEl.href) {
+      try {
+        var baseParsed = new URL(baseEl.href);
+        proxyPath = baseParsed.pathname.replace(/\\/$/, '');
+      } catch(e) {}
+    }
+
+    if (proxyPath) {
+      clone.querySelectorAll('[src],[href]').forEach(function(el) {
+        ['src', 'href'].forEach(function(attr) {
+          var val = el.getAttribute(attr);
+          if (!val) return;
+          // Strip proxy prefix from paths (e.g. /api/content/proj-x/aem-proxy/media/foo.jpg → /media/foo.jpg)
+          if (val.indexOf(proxyPath + '/') === 0) {
+            el.setAttribute(attr, val.slice(proxyPath.length));
+          }
+          // Handle absolute URLs the browser may have resolved
+          else if (val.indexOf('://') !== -1) {
+            try {
+              var parsed = new URL(val);
+              if (parsed.pathname.indexOf(proxyPath + '/') === 0) {
+                el.setAttribute(attr, parsed.pathname.slice(proxyPath.length));
+              }
+            } catch(e) {}
+          }
+        });
+      });
+    }
+
+    // 7. Convert section divs back to flat content with <hr> separators
     // AEM structure: <main> > <div class="section ..."> > content
     // DA source format: content <hr> content <hr> content
     var sections = clone.querySelectorAll(':scope > div');
@@ -396,6 +491,8 @@ function stripDecorationArtifacts(html: string): string {
       const cleaned = `${before}${after}`.replace(/\s+/g, ' ').trim();
       return cleaned ? `class="${cleaned}"` : '';
     })
+    // Strip AEM-added wrapper classes that may be left from previous saves
+    .replace(/\bclass="default-content-wrapper"/gi, '')
     // Remove data-block-name, data-block-status, data-section-status attributes
     .replace(/\s+data-block-(?:name|status)="[^"]*"/gi, '')
     .replace(/\s+data-section-status="[^"]*"/gi, '')
@@ -431,6 +528,7 @@ export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string)
   return `<!DOCTYPE html>
 <html>
 <head>
+  ${fetchInterceptor}
   <base href="${proxyBasePath}/">
   <script src="${proxyBasePath}/scripts/aem.js" type="module"></script>
   <script src="${proxyBasePath}/scripts/scripts.js" type="module"></script>
@@ -439,7 +537,6 @@ export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string)
     body { display: block !important; visibility: visible !important; }
     header, footer { display: block; }
   </style>
-  ${fetchInterceptor}
 </head>
 <body class="appear">
   <header></header>
@@ -468,6 +565,7 @@ export function buildStandalonePreviewPage(sourceHtml: string, proxyBasePath: st
   return `<!DOCTYPE html>
 <html>
 <head>
+  ${fetchInterceptor}
   <base href="${proxyBasePath}/">
   <script src="${proxyBasePath}/scripts/aem.js" type="module"></script>
   <script src="${proxyBasePath}/scripts/scripts.js" type="module"></script>
@@ -476,7 +574,6 @@ export function buildStandalonePreviewPage(sourceHtml: string, proxyBasePath: st
     body { display: block !important; visibility: visible !important; }
     header, footer { display: block; }
   </style>
-  ${fetchInterceptor}
 </head>
 <body class="appear">
   <header></header>

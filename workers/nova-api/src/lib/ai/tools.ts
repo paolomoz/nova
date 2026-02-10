@@ -10,6 +10,8 @@ export interface ToolContext {
   voyageModel: string;
   embedQueue?: Queue;
   anthropicApiKey?: string;
+  falApiKey?: string;
+  assetsBucket?: R2Bucket;
 }
 
 export interface ToolDefinition {
@@ -58,7 +60,7 @@ EDS block structure rules:
 - Accordion: N rows, each row has a question cell + answer cell. Example: <div class="accordion"><div><div><h3>Q?</h3></div><div><p>Answer</p></div></div></div>
 - Tabs: N rows, each row has a label cell + content cell.
 - Hero: 1 row with image cell + text cell.
-- Images: use <picture><img src="https://placehold.co/800x600/e0e0e0/999.png" alt="descriptive alt text"></picture>. For placeholder images, ALWAYS use placehold.co with the .png extension in the URL path (e.g. https://placehold.co/WIDTHxHEIGHT/BGCOLOR/TEXTCOLOR.png). NEVER omit the .png extension or use query params like ?text= — these break AEM's image optimization pipeline.
+- Images: ALWAYS use the generate_image tool to create real images. Call generate_image with a descriptive prompt, then use the returned URL in <picture><img src="RETURNED_URL" alt="descriptive alt text"></picture>. Do NOT use placehold.co — always generate real images.
 - Section breaks: <hr>. Section metadata: <div class="section-metadata"><div><div>key</div><div>value</div></div></div> placed BEFORE the <hr>.
 - Variants are space-separated classes: <div class="cards horizontal">.`,
       input_schema: {
@@ -238,6 +240,20 @@ EDS block structure rules:
           feedback: { type: 'string', description: 'Description of changes to make (e.g. "make the cards larger and add a hover effect")' },
         },
         required: ['block_name', 'feedback'],
+      },
+    },
+    {
+      name: 'generate_image',
+      description: 'Generate a real image using AI (FLUX.2 Pro). Returns a permanent URL to use in page content. Call this BEFORE create_page when images are needed.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Detailed description of the image to generate (e.g. "A modern coffee shop interior with warm lighting, wooden tables, and barista preparing latte art")' },
+          image_size: { type: 'string', description: 'Image dimensions', enum: ['landscape_16_9', 'landscape_4_3', 'square', 'portrait_4_3', 'portrait_16_9'] },
+          alt_text: { type: 'string', description: 'Accessible alt text for the image' },
+          filename: { type: 'string', description: 'Filename without extension (e.g. "hero-coffee-shop"). Will be saved as .jpg.' },
+        },
+        required: ['prompt', 'alt_text', 'filename'],
       },
     },
   ];
@@ -519,6 +535,80 @@ export async function executeTool(
 
       await logAction(db, userId, projectId, 'update_block', `AI updated block: ${input.block_name}`, { feedback: input.feedback });
       return `Updated block "${input.block_name}": ${updated.description}`;
+    }
+    case 'generate_image': {
+      if (!ctx.falApiKey) return JSON.stringify({ error: 'FAL_API_KEY not configured — cannot generate images' });
+
+      const imageSize = input.image_size || 'landscape_16_9';
+      const filename = input.filename.replace(/[^a-zA-Z0-9_-]/g, '-');
+
+      // Call fal.ai FLUX.2 Pro
+      const falResponse = await fetch('https://fal.run/fal-ai/flux-pro/v1.1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Key ${ctx.falApiKey}`,
+        },
+        body: JSON.stringify({
+          prompt: input.prompt,
+          image_size: imageSize,
+          num_images: 1,
+          safety_tolerance: '2',
+          sync_mode: true,
+        }),
+      });
+
+      if (!falResponse.ok) {
+        const errText = await falResponse.text();
+        return JSON.stringify({ error: `fal.ai API error: ${falResponse.status} — ${errText}` });
+      }
+
+      const falData = (await falResponse.json()) as {
+        images: Array<{ url: string; width: number; height: number }>;
+      };
+      const generatedImage = falData.images?.[0];
+      if (!generatedImage) return JSON.stringify({ error: 'No image returned from fal.ai' });
+
+      // Download the temporary fal.ai image
+      const imageResponse = await fetch(generatedImage.url);
+      if (!imageResponse.ok) return JSON.stringify({ error: 'Failed to download generated image from fal.ai' });
+      const imageBytes = await imageResponse.arrayBuffer();
+
+      // Upload to DA media system so images work in DA, AEM preview, and the visual editor
+      const daMediaPath = `/media/generated/${filename}.jpg`;
+      try {
+        const blob = new Blob([imageBytes], { type: 'image/jpeg' });
+        await daClient.uploadMedia(daMediaPath, blob, `${filename}.jpg`);
+      } catch (e) {
+        return JSON.stringify({ error: `Failed to upload image to DA: ${(e as Error).message}` });
+      }
+
+      // Also upload to R2 as backup / for the assets API
+      if (ctx.assetsBucket) {
+        const r2Key = `${projectId}${daMediaPath}`;
+        await ctx.assetsBucket.put(r2Key, imageBytes, {
+          httpMetadata: { contentType: 'image/jpeg' },
+          customMetadata: { projectId, generatedPrompt: input.prompt.slice(0, 500) },
+        });
+      }
+
+      // Save metadata to D1
+      const assetId = crypto.randomUUID();
+      await db.prepare(
+        `INSERT INTO assets (id, project_id, path, name, mime_type, size, width, height, alt_text, tags, r2_key, created_by)
+         VALUES (?, ?, ?, ?, 'image/jpeg', ?, ?, ?, ?, '["ai-generated"]', ?, ?)
+         ON CONFLICT(project_id, path) DO UPDATE SET
+           size = excluded.size, width = excluded.width, height = excluded.height,
+           alt_text = excluded.alt_text, r2_key = excluded.r2_key, updated_at = datetime('now')`,
+      ).bind(
+        assetId, projectId, daMediaPath, `${filename}.jpg`,
+        imageBytes.byteLength, generatedImage.width, generatedImage.height,
+        input.alt_text, `${projectId}${daMediaPath}`, userId,
+      ).run();
+
+      // Return DA-relative path — works in DA, AEM preview, and Nova's visual editor (via AEM proxy)
+      await logAction(db, userId, projectId, 'generate_image', `AI generated image: ${filename}.jpg`, { prompt: input.prompt, path: daMediaPath });
+      return JSON.stringify({ url: daMediaPath, altText: input.alt_text, width: generatedImage.width, height: generatedImage.height });
     }
     default:
       return `Unknown tool: ${name}`;
