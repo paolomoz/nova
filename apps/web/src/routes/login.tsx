@@ -16,6 +16,15 @@ export function LoginPage() {
   // Handle OAuth callback
   const code = searchParams.get('code');
   const provider = searchParams.get('provider') || (searchParams.get('state')?.startsWith('ims-') ? 'ims' : 'github');
+
+  // Auto-redirect to /sites when not handling an OAuth callback
+  // (AuthenticatedRoutes will auto-provision a demo session)
+  useEffect(() => {
+    if (!code) {
+      navigate('/sites');
+    }
+  }, [code, navigate]);
+
   useEffect(() => {
     if (code) {
       if (provider === 'ims') {

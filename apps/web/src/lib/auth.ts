@@ -47,7 +47,15 @@ export const useAuth = create<AuthState>((set, get) => ({
       set({ user: data.user, org: data.org, loading: false });
       get().loadOrgs();
     } catch {
-      set({ user: null, org: null, loading: false });
+      // No session — auto-provision a demo session
+      try {
+        await api.demoLogin();
+        const data = await api.getMe();
+        set({ user: data.user, org: data.org, loading: false });
+        get().loadOrgs();
+      } catch {
+        set({ user: null, org: null, loading: false });
+      }
     }
   },
 

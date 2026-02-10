@@ -348,6 +348,93 @@ auth.get('/me', async (c) => {
   });
 });
 
+/** POST /api/auth/demo-login — create a shared demo session (always available) */
+auth.post('/demo-login', async (c) => {
+  // Upsert demo user
+  const userId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO users (id, github_id, email, name, avatar_url)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(github_id) DO UPDATE SET
+       email = excluded.email,
+       name = excluded.name,
+       updated_at = datetime('now')`,
+  )
+    .bind(userId, 'demo-0', 'demo@nova.cms', 'Demo User', '')
+    .run();
+
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE github_id = ?')
+    .bind('demo-0')
+    .first<{ id: string }>();
+  const actualUserId = user!.id;
+
+  // Upsert demo org
+  const orgId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO orgs (id, name, slug, github_org)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(slug) DO NOTHING`,
+  )
+    .bind(orgId, 'Demo', 'demo', 'paolomoz')
+    .run();
+
+  const org = await c.env.DB.prepare('SELECT id FROM orgs WHERE slug = ?')
+    .bind('demo')
+    .first<{ id: string }>();
+  const actualOrgId = org!.id;
+
+  // Ensure membership
+  await c.env.DB.prepare(
+    `INSERT INTO org_members (org_id, user_id, role)
+     VALUES (?, ?, 'admin')
+     ON CONFLICT(org_id, user_id) DO NOTHING`,
+  )
+    .bind(actualOrgId, actualUserId)
+    .run();
+
+  // Ensure default project exists (paolomoz/nova-2)
+  await c.env.DB.prepare(
+    `INSERT INTO projects (id, org_id, name, slug, da_org, da_repo, github_org, github_repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(org_id, slug) DO NOTHING`,
+  )
+    .bind('proj-demo-nova2', actualOrgId, 'Nova 2', 'nova-2', 'paolomoz', 'nova-2', 'paolomoz', 'nova-2')
+    .run();
+
+  // Create session
+  const sessionToken = crypto.randomUUID();
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(sessionToken));
+  const tokenHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const sessionId = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  await c.env.DB.prepare(
+    'INSERT INTO sessions (id, user_id, org_id, token_hash, expires_at) VALUES (?, ?, ?, ?, ?)',
+  )
+    .bind(sessionId, actualUserId, actualOrgId, tokenHash, expiresAt)
+    .run();
+
+  const cookie = `nova_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`;
+
+  return c.json(
+    {
+      user: {
+        id: actualUserId,
+        email: 'demo@nova.cms',
+        name: 'Demo User',
+        avatarUrl: '',
+      },
+      org: { id: actualOrgId, slug: 'demo' },
+    },
+    200,
+    { 'Set-Cookie': cookie },
+  );
+});
+
 /** POST /api/auth/dev-login — create a test session (local dev only) */
 auth.post('/dev-login', async (c) => {
   if (c.env.DEV_MODE !== 'true') {

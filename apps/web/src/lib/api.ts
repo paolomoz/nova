@@ -29,7 +29,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       throw new ApiError(401, 'Unauthorized');
     }
     const body = await response.text();
-    throw new ApiError(response.status, body);
+    // Try to extract JSON error message, fall back to raw text
+    let message = body;
+    try {
+      const json = JSON.parse(body);
+      if (json.error) message = json.error;
+    } catch { /* use raw text */ }
+    throw new ApiError(response.status, message);
   }
 
   return response.json() as Promise<T>;
@@ -189,6 +195,7 @@ export const api = {
   updatePreferences: (preferences: Record<string, unknown>) =>
     request('/auth/preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   devLogin: () => request('/auth/dev-login', { method: 'POST' }),
+  demoLogin: () => request('/auth/demo-login', { method: 'POST' }),
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   // Org
