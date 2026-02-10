@@ -433,7 +433,7 @@ export function buildFallbackPage(message: string): string {
   <div class="message">
     <h2>Preview Not Available</h2>
     <p>${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
-    <p>Click <strong>Preview</strong> to generate the AEM preview first, then switch to Visual mode.</p>
+    <p>Try saving the page in Source mode, then switch back to Visual.</p>
   </div>
   <script>
     window.parent.postMessage({ type: 'bridge:ready' }, window.location.origin);

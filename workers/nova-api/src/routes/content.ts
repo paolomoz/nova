@@ -464,30 +464,17 @@ content.post('/:projectId/preview', async (c) => {
   const { path } = await c.req.json<{ path: string }>();
   if (!path) return c.json({ error: 'path required' }, 400);
 
-  // Look up project for EDS config
-  const project = await c.env.DB.prepare(
-    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
-  )
-    .bind(projectId)
-    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
-  if (!project) return c.json({ error: 'project not found' }, 404);
+  try {
+    const client = await getDAClientForProject(c.env, projectId);
+    const previewUrl = await client.preview(path);
 
-  const org = project.github_org || project.da_org;
-  const site = project.github_repo || project.da_repo;
+    const session = c.get('session');
+    await logAction(c.env.DB, session.userId, projectId, 'preview', `Previewed ${path}`, { path });
 
-  const response = await fetch(
-    `https://admin.hlx.page/preview/${org}/${site}/main${path}`,
-    { method: 'POST' },
-  );
-  if (!response.ok) {
-    return c.json({ error: `Preview failed: ${response.status}` }, 502);
+    return c.json({ ok: true, url: previewUrl });
+  } catch (e) {
+    return c.json({ error: `Preview failed: ${(e as Error).message}` }, 502);
   }
-
-  const previewUrl = `https://main--${site}--${org}.aem.page${path}`;
-  const session = c.get('session');
-  await logAction(c.env.DB, session.userId, projectId, 'preview', `Previewed ${path}`, { path });
-
-  return c.json({ ok: true, url: previewUrl });
 });
 
 /** POST /api/content/:projectId/publish — publish to live */
@@ -496,29 +483,19 @@ content.post('/:projectId/publish', async (c) => {
   const { path } = await c.req.json<{ path: string }>();
   if (!path) return c.json({ error: 'path required' }, 400);
 
-  const project = await c.env.DB.prepare(
-    'SELECT da_org, da_repo, github_org, github_repo FROM projects WHERE id = ?',
-  )
-    .bind(projectId)
-    .first<{ da_org: string; da_repo: string; github_org: string; github_repo: string }>();
-  if (!project) return c.json({ error: 'project not found' }, 404);
+  try {
+    const client = await getDAClientForProject(c.env, projectId);
+    // Preview first (required before publish), then publish
+    await client.preview(path);
+    const liveUrl = await client.publish(path);
 
-  const org = project.github_org || project.da_org;
-  const site = project.github_repo || project.da_repo;
+    const session = c.get('session');
+    await logAction(c.env.DB, session.userId, projectId, 'publish', `Published ${path}`, { path });
 
-  const response = await fetch(
-    `https://admin.hlx.page/live/${org}/${site}/main${path}`,
-    { method: 'POST' },
-  );
-  if (!response.ok) {
-    return c.json({ error: `Publish failed: ${response.status}` }, 502);
+    return c.json({ ok: true, url: liveUrl });
+  } catch (e) {
+    return c.json({ error: `Publish failed: ${(e as Error).message}` }, 502);
   }
-
-  const liveUrl = `https://main--${site}--${org}.aem.live${path}`;
-  const session = c.get('session');
-  await logAction(c.env.DB, session.userId, projectId, 'publish', `Published ${path}`, { path });
-
-  return c.json({ ok: true, url: liveUrl });
 });
 
 /** GET /api/content/:projectId/assets?path=/ — list media assets */

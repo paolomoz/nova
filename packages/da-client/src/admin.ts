@@ -147,24 +147,28 @@ export class DAAdminClient {
     return `${this.host}/source${this.basePath()}${path}`;
   }
 
-  /** Trigger EDS preview */
+  /** Trigger EDS preview via AEM Admin API */
   async preview(path: string, ref: string = 'main'): Promise<string> {
-    const response = await this.fetch(`/preview/${this.org}/${this.repo}/${ref}${path}`, {
-      method: 'POST',
-    });
+    const token = await getDAToken(this.env);
+    const response = await fetch(
+      `https://admin.hlx.page/preview/${this.org}/${this.repo}/${ref}${path}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+    );
     if (!response.ok) {
-      throw new Error(`DA preview failed: ${response.status}`);
+      throw new Error(`AEM preview failed: ${response.status}`);
     }
     return `https://${ref}--${this.repo}--${this.org}.aem.page${path}`;
   }
 
-  /** Publish to live */
+  /** Publish to live via AEM Admin API */
   async publish(path: string, ref: string = 'main'): Promise<string> {
-    const response = await this.fetch(`/live/${this.org}/${this.repo}/${ref}${path}`, {
-      method: 'POST',
-    });
+    const token = await getDAToken(this.env);
+    const response = await fetch(
+      `https://admin.hlx.page/live/${this.org}/${this.repo}/${ref}${path}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+    );
     if (!response.ok) {
-      throw new Error(`DA publish failed: ${response.status}`);
+      throw new Error(`AEM publish failed: ${response.status}`);
     }
     return `https://${ref}--${this.repo}--${this.org}.aem.live${path}`;
   }
