@@ -359,6 +359,24 @@ function buildBridgeScript(sourceHtml: string): string {
 }
 
 /**
+ * Wrap DA source HTML into section divs, mimicking AEM's server-side rendering.
+ *
+ * DA source uses `<hr>` as section dividers. AEM's server wraps content between
+ * `<hr>` elements into `<div>` section wrappers. AEM's client-side `decorateSections`
+ * expects this structure: `<main> > <div>(section) > <div class="block">(block)`.
+ * Without this wrapping, block decoration fails because block divs become sections
+ * themselves instead of being children of sections.
+ */
+function wrapInSectionDivs(html: string): string {
+  const sections = html.split(/<hr\s*\/?\s*>/i);
+  return sections
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) => `<div>${s}</div>`)
+    .join('\n');
+}
+
+/**
  * Build a self-rendered WYSIWYG page from DA source HTML + AEM site-level CSS/JS.
  *
  * Used as an instant fallback when AEM Edge Delivery hasn't pre-rendered the page.
@@ -369,8 +387,10 @@ function buildBridgeScript(sourceHtml: string): string {
  * @param proxyBasePath - Same-origin proxy path (e.g. /api/content/proj-x/aem-proxy)
  */
 export function buildSelfRenderedPage(sourceHtml: string, proxyBasePath: string): string {
+  // Wrap DA source into section divs (mimics AEM server-side rendering)
+  const sectionWrapped = wrapInSectionDivs(sourceHtml);
   // Rewrite root-relative URLs in the source HTML to go through the proxy
-  const rewrittenSource = rewriteRootRelativeUrls(sourceHtml, proxyBasePath);
+  const rewrittenSource = rewriteRootRelativeUrls(sectionWrapped, proxyBasePath);
 
   const fetchInterceptor = buildFetchInterceptor(proxyBasePath);
   const bridgeScript = buildBridgeScript(sourceHtml);

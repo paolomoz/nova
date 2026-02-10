@@ -275,15 +275,13 @@ export function EditorPage() {
     setDirty(false);
   }, [editorMode, dirty, handleSave, projectId, pagePath, editor]);
 
-  // Preview
+  // Preview — triggers AEM preview and opens the .page URL in a new tab
   const handlePreview = async () => {
     if (!projectId || !pagePath) return;
     if (dirty) await handleSave();
     try {
       const result = await api.previewPage(projectId, pagePath);
-      setPreviewUrl(result.url);
-      setRightPanel('preview');
-      setRightPanelOpen(true);
+      window.open(result.url, '_blank');
       // Refresh WYSIWYG iframe so visual editor reflects the latest preview
       setWysiwygKey((k) => k + 1);
     } catch {

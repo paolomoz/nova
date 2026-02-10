@@ -580,13 +580,18 @@ content.get('/:projectId/wysiwyg', async (c) => {
   const aemHtml = aemResult.status === 'fulfilled' ? aemResult.value : null;
   const sourceHtml = daResult.status === 'fulfilled' ? daResult.value : null;
 
-  // Best path: AEM rendered page available
-  if (aemHtml) {
+  // Check if AEM page has real content in <main> (not just empty wrapper divs)
+  const aemMainContent = aemHtml?.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1]?.replace(/<[^>]*>/g, '').trim();
+  const aemHasContent = aemMainContent && aemMainContent.length > 20;
+
+  // Best path: AEM rendered page with actual content
+  if (aemHtml && aemHasContent) {
     const html = buildWysiwygPage(aemHtml, sourceHtml || '', proxyBasePath, aemBaseUrl);
     return c.html(html);
   }
 
   // Fallback: self-render from DA source + AEM site-level CSS/JS
+  // Also used when AEM returned a page but with empty <main>
   if (sourceHtml) {
     const html = buildSelfRenderedPage(sourceHtml, proxyBasePath);
     return c.html(html);

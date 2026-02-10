@@ -149,27 +149,32 @@ export class DAAdminClient {
 
   /** Trigger EDS preview via AEM Admin API */
   async preview(path: string, ref: string = 'main'): Promise<string> {
+    // Admin API needs .html; EDS public URLs are extensionless
+    const adminPath = path.endsWith('.html') ? path : `${path}.html`;
+    const cleanPath = path.replace(/\.html$/, '');
     const token = await getDAToken(this.env);
     const response = await fetch(
-      `https://admin.hlx.page/preview/${this.org}/${this.repo}/${ref}${path}`,
+      `https://admin.hlx.page/preview/${this.org}/${this.repo}/${ref}${adminPath}`,
       { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
     );
     if (!response.ok) {
       throw new Error(`AEM preview failed: ${response.status}`);
     }
-    return `https://${ref}--${this.repo}--${this.org}.aem.page${path}`;
+    return `https://${ref}--${this.repo}--${this.org}.aem.page${cleanPath}`;
   }
 
   /** Publish to live via AEM Admin API */
   async publish(path: string, ref: string = 'main'): Promise<string> {
+    const adminPath = path.endsWith('.html') ? path : `${path}.html`;
+    const cleanPath = path.replace(/\.html$/, '');
     const token = await getDAToken(this.env);
     const response = await fetch(
-      `https://admin.hlx.page/live/${this.org}/${this.repo}/${ref}${path}`,
+      `https://admin.hlx.page/live/${this.org}/${this.repo}/${ref}${adminPath}`,
       { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
     );
     if (!response.ok) {
       throw new Error(`AEM publish failed: ${response.status}`);
     }
-    return `https://${ref}--${this.repo}--${this.org}.aem.live${path}`;
+    return `https://${ref}--${this.repo}--${this.org}.aem.live${cleanPath}`;
   }
 }
