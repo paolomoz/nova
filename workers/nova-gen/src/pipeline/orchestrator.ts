@@ -6,6 +6,7 @@ import { analyzeAndSelectBlocks } from './reason.js';
 import { generateBlocks } from './generate.js';
 import { getBlockCatalog } from '../blocks/registry.js';
 import { getRAGContext } from '../context/rag.js';
+import { createDAClient } from '../lib/da-client.js';
 
 interface PipelineEnv {
   ANTHROPIC_API_KEY?: string;
@@ -19,6 +20,7 @@ interface PipelineEnv {
   DA_CLIENT_SECRET?: string;
   DA_SERVICE_TOKEN?: string;
   DA_ADMIN_HOST?: string;
+  DA_TOKEN_CACHE?: KVNamespace;
 }
 
 interface PipelineParams {
@@ -162,18 +164,40 @@ export async function orchestrate(params: PipelineParams): Promise<PipelineResul
   if (persistPath && env.DA_SERVICE_TOKEN) {
     try {
       write({ event: 'persist-start', data: { path: persistPath } });
-      const daHost = env.DA_ADMIN_HOST || 'https://admin.da.live';
-      const persistResponse = await fetch(`${daHost}/source`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.DA_SERVICE_TOKEN}`,
-        },
-        body: JSON.stringify({ path: persistPath, content: fullHtml }),
-      });
-      if (persistResponse.ok) {
+
+      // Look up project's DA org/repo from D1
+      let daOrg = '';
+      let daRepo = '';
+      if (env.DB) {
+        const proj = await env.DB.prepare(
+          'SELECT da_org, da_repo FROM projects WHERE id = ? LIMIT 1',
+        ).bind(projectId).first<{ da_org: string; da_repo: string }>();
+        if (proj) {
+          daOrg = proj.da_org;
+          daRepo = proj.da_repo;
+        }
+      }
+
+      if (daOrg && daRepo && env.DA_CLIENT_ID && env.DA_CLIENT_SECRET) {
+        // Use proper DAAdminClient with FormData-based putSource
+        const daClient = createDAClient(env as Parameters<typeof createDAClient>[0], daOrg, daRepo);
+        await daClient.putSource(persistPath, fullHtml);
         persistedPath = persistPath;
         write({ event: 'persist-complete', data: { path: persistPath } });
+      } else {
+        // Fallback: raw fetch with service token (legacy path)
+        const daHost = env.DA_ADMIN_HOST || 'https://admin.da.live';
+        const formData = new FormData();
+        formData.append('data', new Blob([fullHtml], { type: 'text/html' }), 'index.html');
+        const persistResponse = await fetch(`${daHost}/source${persistPath}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${env.DA_SERVICE_TOKEN}` },
+          body: formData,
+        });
+        if (persistResponse.ok) {
+          persistedPath = persistPath;
+          write({ event: 'persist-complete', data: { path: persistPath } });
+        }
       }
     } catch { /* non-fatal */ }
   }

@@ -163,6 +163,22 @@ function buildBridgeScript(sourceHtml: string): string {
   var PARENT_ORIGIN = window.location.origin;
   var ready = false;
 
+  // --- Parse source HTML into sections for change tracking ---
+  // Source uses <hr> as section dividers. We split into an array so we can
+  // return the original source verbatim for sections the user didn't touch.
+  var sourceSections = [];
+  var sectionModified = [];
+
+  function parseSourceSections() {
+    var raw = window.__NOVA_SOURCE_HTML__;
+    // Strip <main>/<body>/<html> wrappers to get inner content
+    var m = raw.match(/<main[^>]*>([\\s\\S]*?)<\\/main>/i);
+    if (!m) m = raw.match(/<body[^>]*>([\\s\\S]*?)<\\/body>/i);
+    var inner = m ? m[1].trim() : raw;
+    sourceSections = inner.split(/<hr\\s*\\/?>\\s*/i);
+    sectionModified = sourceSections.map(function() { return false; });
+  }
+
   // --- Wait for AEM decoration to complete ---
   function waitForDecoration(callback) {
     var maxWait = 8000;
@@ -236,9 +252,22 @@ function buildBridgeScript(sourceHtml: string): string {
     main.setAttribute('contenteditable', 'true');
     main.style.outline = 'none';
 
-    // Observe mutations to detect edits
-    var observer = new MutationObserver(function() {
+    // Observe mutations to detect edits and mark affected sections
+    var observer = new MutationObserver(function(mutations) {
       if (!ready) return;
+
+      // Identify which section(s) contain the mutations
+      var sectionDivs = main.querySelectorAll(':scope > div');
+      mutations.forEach(function(mutation) {
+        var target = mutation.target;
+        for (var i = 0; i < sectionDivs.length; i++) {
+          if (sectionDivs[i].contains(target) || sectionDivs[i] === target) {
+            sectionModified[i] = true;
+            break;
+          }
+        }
+      });
+
       window.parent.postMessage({ type: 'bridge:content-changed' }, PARENT_ORIGIN);
     });
 
@@ -258,32 +287,19 @@ function buildBridgeScript(sourceHtml: string): string {
     });
   }
 
-  // --- Content extraction: grab live DOM and strip AEM decoration ---
-  // Strategy: clone main's innerHTML, remove AEM-added decoration artifacts,
-  // and convert section wrapper divs back to <hr> separators.
-  function extractContent() {
-    var main = document.querySelector('main');
-    if (!main) return window.__NOVA_SOURCE_HTML__;
+  // --- Extract a single modified section from the decorated DOM ---
+  function extractSectionFromDOM(sectionDiv) {
+    var clone = sectionDiv.cloneNode(true);
 
-    // Clone main so we can modify without affecting the live page
-    var clone = main.cloneNode(true);
-
-    // Remove AEM decoration artifacts
     // 1. Remove data-block-name, data-block-status, data-section-status attributes
-    clone.querySelectorAll('[data-block-name]').forEach(function(el) {
+    clone.querySelectorAll('[data-block-name], [data-block-status], [data-section-status]').forEach(function(el) {
       el.removeAttribute('data-block-name');
       el.removeAttribute('data-block-status');
-    });
-    clone.querySelectorAll('[data-section-status]').forEach(function(el) {
       el.removeAttribute('data-section-status');
     });
+    clone.removeAttribute('data-section-status');
 
     // 2. Remove AEM-added wrapper divs
-    // AEM's decorateSections creates two kinds of wrappers:
-    //   a) Block wrappers: <div class="hero-wrapper"><div class="hero block">...</div></div>
-    //   b) Default content wrappers: <div class="default-content-wrapper"><p>text</p>...</div>
-    // For (a): replace wrapper with inner block div (keeping block class name)
-    // For (b): unwrap all children (promote to parent)
     clone.querySelectorAll('[class$="-wrapper"]').forEach(function(wrapper) {
       if (!wrapper.parentNode) return;
 
@@ -301,13 +317,35 @@ function buildBridgeScript(sourceHtml: string): string {
       if (blockDiv) {
         blockDiv.removeAttribute('data-block-name');
         blockDiv.removeAttribute('data-block-status');
+        // Extract the block name (first non-'block' class)
+        var blockName = '';
         var classes = blockDiv.className.split(/\\s+/).filter(function(c) {
-          return c !== 'block' && !c.endsWith('-wrapper');
+          if (c === 'block' || c.endsWith('-wrapper')) return false;
+          if (!blockName) blockName = c;
+          return true;
         });
         blockDiv.className = classes.join(' ');
+
+        // Strip block-internal decoration classes (e.g. hero-image, hero-content, cards-card-body)
+        if (blockName) {
+          blockDiv.querySelectorAll('[class]').forEach(function(el) {
+            var kept = [];
+            el.className.split(/\\s+/).forEach(function(cls) {
+              // Remove classes prefixed with the block name (decoration classes)
+              if (cls && cls.indexOf(blockName + '-') !== 0) {
+                kept.push(cls);
+              }
+            });
+            if (kept.length === 0) {
+              el.removeAttribute('class');
+            } else {
+              el.className = kept.join(' ');
+            }
+          });
+        }
+
         wrapper.parentNode.replaceChild(blockDiv, wrapper);
       } else {
-        // Unknown wrapper with no block div inside — just unwrap children
         while (wrapper.firstChild) {
           wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
         }
@@ -315,18 +353,7 @@ function buildBridgeScript(sourceHtml: string): string {
       }
     });
 
-    // 3. Remove elements AEM added (icons container, button containers, etc.)
-    clone.querySelectorAll('.icon, .section-metadata').forEach(function(el) {
-      // Keep section-metadata blocks (they're part of DA source)
-      // Only remove if it was added by AEM decoration
-      if (el.classList.contains('icon') && el.tagName === 'SPAN') {
-        // AEM wraps icon references in <span class="icon icon-xxx"><img>...</span>
-        // Keep as-is — these are part of the content
-      }
-    });
-
-    // 4. Remove AEM button wrappers: <div class="button-container"><a class="button">...</a></div>
-    // Convert back to plain <p><a>...</a></p>
+    // 3. Remove AEM button wrappers → <p><a>
     clone.querySelectorAll('.button-container').forEach(function(container) {
       var link = container.querySelector('a');
       if (link && container.parentNode) {
@@ -338,13 +365,12 @@ function buildBridgeScript(sourceHtml: string): string {
       }
     });
 
-    // 5. Unwrap AEM's createOptimizedPicture: <picture><source>...<img></picture> → <img>
-    // AEM wraps plain <img> in <picture> with <source> variants. We need to reverse this
-    // so the source HTML stays clean for re-decoration on the next load.
+    // 4. Unwrap AEM's createOptimizedPicture — ONLY <picture> that have <source> children
+    // (those were added by AEM). Preserve <picture> without <source> (original source).
     clone.querySelectorAll('picture').forEach(function(picture) {
+      if (!picture.querySelector('source')) return; // original source <picture>, keep it
       var img = picture.querySelector('img');
       if (img && picture.parentNode) {
-        // Remove AEM-added attributes
         img.removeAttribute('loading');
         img.removeAttribute('width');
         img.removeAttribute('height');
@@ -352,10 +378,15 @@ function buildBridgeScript(sourceHtml: string): string {
       }
     });
 
-    // 6. Reverse proxy URL rewriting on all src/href attributes
-    // The bridge rewrites root-relative URLs to go through the AEM proxy (e.g.
-    // /media/foo.jpg → /api/content/proj-x/aem-proxy/media/foo.jpg).
-    // We need to strip the proxy prefix so DA source stores clean root-relative paths.
+    // 5. Remove bridge highlight inline styles
+    clone.querySelectorAll('[style]').forEach(function(el) {
+      var style = el.getAttribute('style');
+      if (style && /outline-offset/.test(style)) {
+        el.removeAttribute('style');
+      }
+    });
+
+    // 6. Reverse proxy URL rewriting
     var baseEl = document.querySelector('base');
     var proxyPath = '';
     if (baseEl && baseEl.href) {
@@ -364,18 +395,14 @@ function buildBridgeScript(sourceHtml: string): string {
         proxyPath = baseParsed.pathname.replace(/\\/$/, '');
       } catch(e) {}
     }
-
     if (proxyPath) {
       clone.querySelectorAll('[src],[href]').forEach(function(el) {
         ['src', 'href'].forEach(function(attr) {
           var val = el.getAttribute(attr);
           if (!val) return;
-          // Strip proxy prefix from paths (e.g. /api/content/proj-x/aem-proxy/media/foo.jpg → /media/foo.jpg)
           if (val.indexOf(proxyPath + '/') === 0) {
             el.setAttribute(attr, val.slice(proxyPath.length));
-          }
-          // Handle absolute URLs the browser may have resolved
-          else if (val.indexOf('://') !== -1) {
+          } else if (val.indexOf('://') !== -1) {
             try {
               var parsed = new URL(val);
               if (parsed.pathname.indexOf(proxyPath + '/') === 0) {
@@ -387,22 +414,33 @@ function buildBridgeScript(sourceHtml: string): string {
       });
     }
 
-    // 7. Convert section divs back to flat content with <hr> separators
-    // AEM structure: <main> > <div class="section ..."> > content
-    // DA source format: content <hr> content <hr> content
-    var sections = clone.querySelectorAll(':scope > div');
-    var result = '';
-    for (var i = 0; i < sections.length; i++) {
-      if (i > 0) result += '<hr>';
-      result += sections[i].innerHTML;
+    return clone.innerHTML;
+  }
+
+  // --- Content extraction: source-based with per-section change tracking ---
+  // Unmodified sections → return original source verbatim (preserves block structure).
+  // Modified sections → extract from DOM with decoration stripping.
+  function extractContent() {
+    var main = document.querySelector('main');
+    if (!main) return window.__NOVA_SOURCE_HTML__;
+
+    var sectionDivs = main.querySelectorAll(':scope > div');
+
+    // If no section divs, fall back to source
+    if (sectionDivs.length === 0) return window.__NOVA_SOURCE_HTML__;
+
+    var parts = [];
+    for (var i = 0; i < sectionDivs.length; i++) {
+      // Use original source for unmodified sections (if we have source for this index)
+      if (!sectionModified[i] && i < sourceSections.length) {
+        parts.push(sourceSections[i]);
+      } else {
+        // Modified or new section — extract from decorated DOM
+        parts.push(extractSectionFromDOM(sectionDivs[i]));
+      }
     }
 
-    // If no section divs found, just use innerHTML directly
-    if (sections.length === 0) {
-      result = clone.innerHTML;
-    }
-
-    return result;
+    return parts.join('<hr>');
   }
 
   // --- Message handler (parent → iframe) ---
@@ -424,6 +462,7 @@ function buildBridgeScript(sourceHtml: string): string {
   });
 
   // --- Initialize ---
+  parseSourceSections();
   waitForDecoration(function() {
     setupBlockHighlighting();
     setupEditing();
